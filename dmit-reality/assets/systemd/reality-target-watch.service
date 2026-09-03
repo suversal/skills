@@ -1,0 +1,19 @@
+[Unit]
+Description=DMIT REALITY target health check
+After=network-online.target x-ui.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=90s
+UMask=0077
+User=root
+Group=root
+RuntimeDirectory=reality-target-watch
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/flock -n /run/reality-target-watch/lock /usr/local/sbin/reality-target-watch
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/reality-target-watch /run/reality-target-watch

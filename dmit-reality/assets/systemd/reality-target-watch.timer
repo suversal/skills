@@ -1,0 +1,12 @@
+[Unit]
+Description=Run DMIT REALITY target health check every 10 minutes
+
+[Timer]
+OnBootSec=3m
+OnUnitActiveSec=10m
+RandomizedDelaySec=30s
+Persistent=true
+Unit=reality-target-watch.service
+
+[Install]
+WantedBy=timers.target

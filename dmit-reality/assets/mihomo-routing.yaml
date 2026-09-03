@@ -1,0 +1,201 @@
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 223.5.5.5
+    - 1.1.1.1
+  nameserver:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+  nameserver-policy:
+    'geosite:cn,private':
+      - https://dns.alidns.com/dns-query
+      - https://doh.pub/dns-query
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    include-all: true
+    proxies:
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "♻️ 自动选择"
+    type: url-test
+    include-all: true
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+  - name: "🤖 AI 服务"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "🐙 GitHub"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "📹 YouTube"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "🎬 Netflix"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "🌍 国外媒体"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "📲 Telegram"
+    type: select
+    proxies:
+      - "🚀 节点选择"
+      - "♻️ 自动选择"
+      - DIRECT
+  - name: "🍎 Apple 服务"
+    type: select
+    proxies:
+      - DIRECT
+      - "🚀 节点选择"
+  - name: "Ⓜ️ Microsoft 服务"
+    type: select
+    proxies:
+      - DIRECT
+      - "🚀 节点选择"
+  - name: "🌏 国内服务"
+    type: select
+    proxies:
+      - DIRECT
+      - "🚀 节点选择"
+  - name: "🛑 广告拦截"
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+rule-providers:
+  reject:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-reject.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ads-all.yaml
+    interval: 86400
+  ai:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-ai.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.yaml
+    interval: 86400
+  github:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-github.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.yaml
+    interval: 86400
+  youtube:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-youtube.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/youtube.yaml
+    interval: 86400
+  netflix-domain:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-netflix-domain.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/netflix.yaml
+    interval: 86400
+  netflix-ip:
+    type: http
+    behavior: ipcidr
+    format: yaml
+    path: ./ruleset/meta-netflix-ip.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/netflix.yaml
+    interval: 86400
+  telegram-domain:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-telegram-domain.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/telegram.yaml
+    interval: 86400
+  telegram-ip:
+    type: http
+    behavior: ipcidr
+    format: yaml
+    path: ./ruleset/meta-telegram-ip.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/telegram.yaml
+    interval: 86400
+  foreign-media:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-foreign-media.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-media.yaml
+    interval: 86400
+  cn-media:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-cn-media.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-media-cn.yaml
+    interval: 86400
+  apple:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-apple.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/apple.yaml
+    interval: 86400
+  microsoft:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-microsoft.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/microsoft.yaml
+    interval: 86400
+  cn-domain:
+    type: http
+    behavior: domain
+    format: yaml
+    path: ./ruleset/meta-cn-domain.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.yaml
+    interval: 86400
+  cn-ip:
+    type: http
+    behavior: ipcidr
+    format: yaml
+    path: ./ruleset/meta-cn-ip.yaml
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.yaml
+    interval: 86400
+rules:
+  - GEOSITE,private,DIRECT
+  - GEOIP,private,DIRECT,no-resolve
+  - RULE-SET,reject,🛑 广告拦截
+  - RULE-SET,ai,🤖 AI 服务
+  - RULE-SET,github,🐙 GitHub
+  - RULE-SET,telegram-domain,📲 Telegram
+  - RULE-SET,telegram-ip,📲 Telegram,no-resolve
+  - RULE-SET,youtube,📹 YouTube
+  - RULE-SET,netflix-domain,🎬 Netflix
+  - RULE-SET,netflix-ip,🎬 Netflix,no-resolve
+  - RULE-SET,foreign-media,🌍 国外媒体
+  - RULE-SET,cn-media,🌏 国内服务
+  - RULE-SET,apple,🍎 Apple 服务
+  - RULE-SET,microsoft,Ⓜ️ Microsoft 服务
+  - RULE-SET,cn-domain,🌏 国内服务
+  - RULE-SET,cn-ip,🌏 国内服务,no-resolve
+  - MATCH,🚀 节点选择

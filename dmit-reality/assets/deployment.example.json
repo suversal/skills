@@ -1,0 +1,18 @@
+{
+  "server_address": "203.0.113.10",
+  "expected_exit_ipv4": "203.0.113.10",
+  "ssh_port": 22,
+  "panel_domain": "panel.example.com",
+  "subscription_domain": "sub.example.com",
+  "subscription_port": 2096,
+  "reality_target": "target.example.com:443",
+  "reality_sni": "target.example.com",
+  "min_client_ver": "1.0.0",
+  "inbound_remark": "DMIT-REALITY",
+  "inbound_quota_gib": 900,
+  "traffic_reset_day": 5,
+  "clients": [
+    {"name": "owner", "quota_gib": 800, "expiry_ms": 0, "limit_ip": 3},
+    {"name": "friend-1", "quota_gib": 100, "expiry_ms": 0, "limit_ip": 3}
+  ]
+}
