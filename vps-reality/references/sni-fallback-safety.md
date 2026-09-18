@@ -17,7 +17,7 @@
 ## 2. 选目标：先做风险判断，再部署
 
 1. 从本次 VPS 读取候选 target 的 A/AAAA、CNAME、实际连接 IP、ASN/服务归属和检查时间；域名解析有多个地址时全部纳入范围，不能只挑一条非 CF 地址。
-2. 用当日 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/) 检查相关 IPv4/IPv6，结合 CNAME/ASN/服务信息判断。非 CF 不等于非共享 CDN；同 ASN、低延迟或 DMIT 网络也不自动等于安全。
+2. 用当日 [Cloudflare 官方 IP 段](https://www.cloudflare.com/ips/) 检查相关 IPv4/IPv6，结合 CNAME/ASN/服务信息判断。非 CF 不等于非共享 CDN；同 ASN、低延迟或供应商网络也不自动等于安全。
 3. 验证候选的证书/SAN、TLS 1.3、H2、HTTPS 和稳定性。对固定 IP + 不同 SNI，按配置的真实组合测试，不用域名普通解析代替。
 4. 默认优先选择有证据支持的非共享 CDN 目标。确认是 CF/其他可跨站复用的共享 CDN，或归属证据不明时，不自动推进上线/切换；报告风险，选择已验证替代目标，或请求用户决定是否走例外方案。
 5. 换 IP、变更 DNS/target/SNI、修改前置代理或升级涉及回落行为的 core 后，重新评估受影响项目。历史“未见异常”不能作为当前白名单。
@@ -36,16 +36,16 @@
 
 ```bash
 # 默认只校验参数/显示测试范围，不联网。
-python3 scripts/probe_fallback.py --server-ip "$VPS_IP" --allowed-sni "$REALITY_SNI"
+python3 scripts/probe_fallback.py --server-ip "$PUBLIC_IP" --port "$PUBLIC_PORT" --allowed-sni "$REALITY_SNI"
 
 # 已获得针对该节点的测试授权后才执行：一次基础 HEAD 请求。
-python3 scripts/probe_fallback.py --server-ip "$VPS_IP" --allowed-sni "$REALITY_SNI" \
-  --run --confirm-server "$VPS_IP"
+python3 scripts/probe_fallback.py --server-ip "$PUBLIC_IP" --port "$PUBLIC_PORT" --allowed-sni "$REALITY_SNI" \
+  --run --confirm-server "$PUBLIC_IP"
 
 # 有获准测试的另一域名时，最多三次 HEAD 请求；可选明确的公开测试资源路径。
-python3 scripts/probe_fallback.py --server-ip "$VPS_IP" --allowed-sni "$REALITY_SNI" \
+python3 scripts/probe_fallback.py --server-ip "$PUBLIC_IP" --port "$PUBLIC_PORT" --allowed-sni "$REALITY_SNI" \
   --test-domain "$CONTROLLED_DOMAIN" --path /probe.txt \
-  --run --confirm-server "$VPS_IP" --confirm-test-domain "$CONTROLLED_DOMAIN"
+  --run --confirm-server "$PUBLIC_IP" --confirm-test-domain "$CONTROLLED_DOMAIN"
 ```
 
 三个场景分别为：允许 SNI + 同名 Host；另一域名 SNI + 同名 Host；允许 SNI + 另一域名 Host。最后一个用于检查只限制 SNI 后仍可能存在的跨 Host 能力，不预设 CDN 必然允许 domain fronting。
@@ -77,11 +77,11 @@ python3 scripts/probe_fallback.py --server-ip "$VPS_IP" --allowed-sni "$REALITY_
 
 ## 5. 计量与监控边界
 
-不要假定未认证回落会计入某个合法用户、受 3x-ui 的用户/入站额度完整约束，或会经过用户路由/P2P 阻止规则；需以实际 core 版本、统计路径和受控对照验证。面板额度不是整机或 DMIT 账单的硬上限。
+不要假定未认证回落会计入某个合法用户、受 3x-ui 的用户/入站额度完整约束，或会经过用户路由/P2P 阻止规则；需以实际 core 版本、统计路径和受控对照验证。面板额度不是整机或供应商账单的硬上限。
 
-疑似异常时先对齐同一时间窗：供应商上下行计费口径/更新延迟、物理网卡 RX/TX 增量、3x-ui/Xray 用户统计增量、443 连接与实际 target 出站、cloudflared/系统更新/其他业务。连接来源在前置代理/NAT 后可能不同；单一来源也不构成无滥用证明。差值只能提示继续定位，不能直接归因偷流量。短时日志只保留必要元数据，不长期抓取用户明文内容。
+疑似异常时先对齐同一时间窗：供应商上下行计费口径/更新延迟、物理网卡 RX/TX 增量、3x-ui/Xray 用户统计增量、实际监听连接与 target 出站、cloudflared/系统更新/其他业务。连接来源在前置代理/NAT 后可能不同；单一来源也不构成无滥用证明。差值只能提示继续定位，不能直接归因偷流量。短时日志只保留必要元数据，不长期抓取用户明文内容。
 
-现有 `reality_target_watch.py` 检查 DNS/TLS/HTTPS、x-ui 和 443，**既不做回落安全测试，也不检查带宽偷跑**；`healthy` 不代表无滥用。DNS 漂移应触发重新评估，但不能自动换 target。整机流量告警/外部可达监控/探针需要另行授权，不因更新本 Skill 自动装服务。
+现有 `reality_target_watch.py` 检查 DNS/TLS/HTTPS、x-ui 和配置的本机监听端口，**既不做回落安全测试，也不检查带宽偷跑或云/NAT 公网入口**；`healthy` 不代表无滥用。DNS 漂移应触发重新评估，但不能自动换 target。整机流量告警/外部可达监控/探针需要另行授权，不因更新本 Skill 自动装服务。
 
 ## 6. 验收与结论
 

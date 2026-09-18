@@ -22,6 +22,7 @@ import render_bundle as render
 import smoke_xray as smoke
 import sqlite_snapshot as backup
 import probe_fallback as fallback
+import platform_profile as profile
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -42,6 +43,8 @@ class SkillTests(unittest.TestCase):
         self.assertEqual(inbound["total"], 900 * 1024**3)
         self.assertEqual(stream["security"], "reality")
         self.assertEqual(inbound["trafficResetDay"], self.c["traffic_reset_day"])
+        self.assertEqual(inbound["port"], self.c["reality_listen_port"])
+        self.assertEqual(bundle["clients.private.json"]["server_port"], self.c["reality_public_port"])
         self.assertEqual(bundle["settings.patch.json"]["webListen"], "127.0.0.1")
         self.assertEqual(bundle["settings.patch.json"]["subListen"], "127.0.0.1")
         clients = settings["clients"]
@@ -50,10 +53,11 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(all(x["flow"] == "xtls-rprx-vision" for x in clients))
         record_text = json.dumps(bundle["clients.private.json"])
         self.assertNotIn("A" * 43, record_text)  # private server key never in client record
+        self.assertTrue(all(x["vless_uri"].startswith("vless://") for x in bundle["clients.private.json"]["clients"]))
         self.assertNotEqual(bundle["clients.private.json"], self.bundle()["clients.private.json"])
 
     def test_reject_invalid_or_ambiguous_input(self):
-        for field, value in (("traffic_reset_day", 31), ("ssh_port", 443),
+        for field, value in (("traffic_reset_day", 32), ("ssh_port", 443),
                              ("subscription_port", 22), ("inbound_quota_gib", True),
                              ("panel_domain", "x.example.com/path"), ("reality_sni", "example.com\r\nHost:x")):
             c = copy.deepcopy(self.c)
@@ -63,6 +67,56 @@ class SkillTests(unittest.TestCase):
         self.c["clients"][1]["name"] = "OWNER"
         with self.assertRaises(ValueError):
             render.validate(self.c)
+
+    def test_direct_nat_and_control_plane_modes(self):
+        direct = copy.deepcopy(self.c)
+        render.validate(direct)
+        with self.assertRaises(ValueError):
+            direct["reality_public_port"] = 2443
+            render.validate(direct)
+
+        nat = copy.deepcopy(self.c)
+        nat.update(network_mode="nat", reality_listen_port=2081, reality_public_port=34438)
+        render.validate(nat)
+        bundle = render.build(nat, "A" * 43, "B" * 43, "")
+        inbound = bundle["inbound.json"]
+        stream = json.loads(inbound["streamSettings"])
+        panel.fresh_inbound(inbound, [])
+        self.assertEqual(inbound["port"], 2081)
+        self.assertNotIn("externalProxy", stream)
+        self.assertEqual(bundle["hosts.pending.json"]["port"], 34438)
+        self.assertEqual(bundle["hosts.pending.json"]["inboundIds"], [])
+        self.assertEqual(bundle["clients.private.json"]["server_port"], 34438)
+        self.assertIn(":34438?", bundle["clients.private.json"]["clients"][0]["vless_uri"])
+
+        local = copy.deepcopy(self.c)
+        local.update(control_plane_mode="ssh-only", panel_domain="", subscription_domain="")
+        render.validate(local)
+        client = render.build(local, "A" * 43, "B" * 43, "")["clients.private.json"]["clients"][0]
+        self.assertEqual(client["subscription_urls"], {})
+        self.assertTrue(client["local_subscription_urls"]["raw"].startswith("http://127.0.0.1:"))
+
+        local["panel_domain"] = "panel.unit.invalid"
+        with self.assertRaises(ValueError):
+            render.validate(local)
+
+    def test_platform_profiles_cover_supported_families_and_safe_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os_release = Path(tmp) / "os-release"
+            os_release.write_text('ID=ubuntu\nVERSION_ID="24.04"\nID_LIKE=debian\n')
+            result = profile.classify(profile.read_os_release(os_release), "x86_64", "systemd")
+            self.assertEqual(result["os_family"], "apt")
+            self.assertEqual(result["profile_status"], "supported_baseline")
+
+            os_release.write_text('ID="ol"\nVERSION_ID="9.5"\nID_LIKE="fedora"\n')
+            result = profile.classify(profile.read_os_release(os_release), "aarch64", "systemd")
+            self.assertEqual(result["os_family"], "dnf")
+            self.assertEqual(result["architecture"], "arm64")
+            self.assertEqual(result["profile_status"], "supported_baseline")
+
+            os_release.write_text('ID=alpine\nVERSION_ID=3.20\n')
+            result = profile.classify(profile.read_os_release(os_release), "x86_64", "openrc")
+            self.assertEqual(result["profile_status"], "manual_adaptation_required")
 
     def test_x25519_version_aliases_and_reject_unknown(self):
         for name in ("Password (PublicKey)", "PublicKey", "Password"):
@@ -143,6 +197,19 @@ class SkillTests(unittest.TestCase):
         new = dict(old, id="00000000-0000-4000-8000-000000000001", subId="synthetic-new-sub-id", email="new-test-client")
         panel.new_client({"client": new, "inboundIds": [73]}, [inbound])
 
+    def test_nat_hosts_requires_created_reality_inbound_and_no_existing_hosts(self):
+        nat = copy.deepcopy(self.c)
+        nat.update(network_mode="nat", reality_listen_port=2081, reality_public_port=34438)
+        bundle = render.build(nat, "A" * 43, "B" * 43, "")
+        inbound = dict(bundle["inbound.json"], id=73)
+        host = bundle["hosts.pending.json"]
+        with self.assertRaises(ValueError):
+            panel.fresh_host(host, [inbound], [])
+        host["inboundIds"] = [73]
+        panel.fresh_host(host, [inbound], [])
+        with self.assertRaises(ValueError):
+            panel.fresh_host(host, [inbound], [{"groupId": "already-present"}])
+
     def test_settings_merge_preserves_unrelated_values_and_rejects_schema_drift(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "patch.json"
@@ -205,7 +272,8 @@ class SkillTests(unittest.TestCase):
     def test_monitor_failed_delivery_never_marks_delivered(self):
         cfg = {"FAILURE_THRESHOLD": "3", "RECOVERY_THRESHOLD": "2", "CERT_WARN_DAYS": "14"}
         result = {"healthy": False, "tcp": False, "tls13": False, "san": False, "dns": False,
-                  "x_ui": True, "listener_443": True, "http_status": 0, "cert_days": -1, "domain": "target.example.com", "ip": "203.0.113.9"}
+                  "x_ui": True, "listener": True, "listen_port": 443, "http_status": 0,
+                  "cert_days": -1, "domain": "target.example.com", "ip": "203.0.113.9"}
         state = {"consecutive_failures": 2, "consecutive_successes": 0, "alert_open": False}
         with patch.object(sys, "argv", ["watch"]), patch.object(watch, "require_config", return_value=cfg), patch.object(watch, "active_profile", return_value="test"), patch.object(watch, "check_target", return_value=result), patch.object(watch, "load_state", return_value=state), patch.object(watch, "save_state") as save, patch.object(watch, "telegram_send", side_effect=RuntimeError("synthetic failure")):
             with self.assertRaises(RuntimeError):

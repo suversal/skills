@@ -127,7 +127,7 @@ def probe(args, case):
             with context.wrap_socket(raw, server_hostname=sni) as tls:
                 result["tls_verified"] = True
                 request = (f"HEAD {args.path} HTTP/1.1\r\nHost: {host}\r\n"
-                           "User-Agent: dmit-fallback-audit/1.0\r\nConnection: close\r\n\r\n")
+                           "User-Agent: vps-reality-fallback-audit/1.0\r\nConnection: close\r\n\r\n")
                 tls.settimeout(remaining(deadline))
                 tls.sendall(request.encode("ascii"))
                 data, complete = read_headers(tls, deadline)

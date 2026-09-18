@@ -9,6 +9,7 @@ import re
 import secrets
 import subprocess
 import sys
+from urllib.parse import quote, urlencode
 import uuid
 
 
@@ -28,17 +29,28 @@ def integer(value, low, high, field):
 
 
 def validate(c):
-    expected = {"server_address", "expected_exit_ipv4", "ssh_port", "panel_domain",
-                "subscription_domain", "subscription_port", "reality_target", "reality_sni",
-                "min_client_ver", "inbound_remark", "inbound_quota_gib", "traffic_reset_day", "clients"}
+    expected = {"provider", "network_mode", "control_plane_mode", "server_address",
+                "expected_exit_ipv4", "ssh_port", "reality_listen_port", "reality_public_port",
+                "panel_domain", "subscription_domain", "subscription_port", "reality_target",
+                "reality_sni", "min_client_ver", "inbound_remark", "inbound_quota_gib",
+                "traffic_reset_day", "clients"}
     if not isinstance(c, dict) or set(c) != expected:
         raise ValueError("configuration keys missing or unknown")
+    if not isinstance(c["provider"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,31}", c["provider"]):
+        raise ValueError("provider requires a simple public label")
+    if c["network_mode"] not in {"direct", "nat"}:
+        raise ValueError("network_mode must be direct or nat")
+    if c["control_plane_mode"] not in {"cloudflare-tunnel", "ssh-only"}:
+        raise ValueError("control_plane_mode must be cloudflare-tunnel or ssh-only")
     ipaddress.IPv4Address(c["server_address"])
     ipaddress.IPv4Address(c["expected_exit_ipv4"])
-    hostname(c["panel_domain"])
-    hostname(c["subscription_domain"])
-    if c["panel_domain"] == c["subscription_domain"]:
-        raise ValueError("panel and subscription domains must differ")
+    if c["control_plane_mode"] == "cloudflare-tunnel":
+        hostname(c["panel_domain"])
+        hostname(c["subscription_domain"])
+        if c["panel_domain"] == c["subscription_domain"]:
+            raise ValueError("panel and subscription domains must differ")
+    elif c["panel_domain"] or c["subscription_domain"]:
+        raise ValueError("ssh-only requires empty panel and subscription domains")
     hostname(c["reality_sni"])
     target_host, target_port = c["reality_target"].rsplit(":", 1)
     try:
@@ -47,13 +59,19 @@ def validate(c):
         hostname(target_host)
     integer(int(target_port), 1, 65535, "target port")
     ssh_port = integer(c["ssh_port"], 1, 65535, "ssh_port")
+    listen_port = integer(c["reality_listen_port"], 1, 65535, "reality_listen_port")
+    public_port = integer(c["reality_public_port"], 1, 65535, "reality_public_port")
     sub_port = integer(c["subscription_port"], 1024, 65535, "subscription_port")
-    if len({ssh_port, sub_port, 443}) != 3:
-        raise ValueError("SSH, subscription and REALITY ports must differ")
-    integer(c["traffic_reset_day"], 1, 28, "traffic_reset_day (1..28)")
+    if c["network_mode"] == "direct" and listen_port != public_port:
+        raise ValueError("direct mode requires matching listen and public ports")
+    if ssh_port == public_port:
+        raise ValueError("public SSH and REALITY ports must differ")
+    if sub_port == listen_port:
+        raise ValueError("local subscription and REALITY listen ports must differ")
+    integer(c["traffic_reset_day"], 1, 31, "traffic_reset_day (1..31)")
     integer(c["inbound_quota_gib"], 1, 1000000, "inbound_quota_gib")
-    if not isinstance(c["min_client_ver"], str) or not re.fullmatch(r"\d+\.\d+\.\d+", c["min_client_ver"]):
-        raise ValueError("min_client_ver must be an explicitly reviewed x.y.z")
+    if not isinstance(c["min_client_ver"], str) or (c["min_client_ver"] and not re.fullmatch(r"\d+\.\d+\.\d+", c["min_client_ver"])):
+        raise ValueError("min_client_ver must be empty or an explicitly reviewed x.y.z")
     if not isinstance(c["inbound_remark"], str) or not 1 <= len(c["inbound_remark"]) <= 100:
         raise ValueError("invalid inbound_remark")
     if any(ord(ch) < 32 for ch in c["inbound_remark"]):
@@ -101,8 +119,21 @@ def build(c, private, public, routing):
                         "limitIp": person["limit_ip"], "totalGB": person["quota_gib"] * 1024**3,
                         "expiryTime": person["expiry_ms"], "enable": True, "tgId": 0,
                         "subId": sub_id, "comment": "Independent personal credential", "reset": 0})
+        query = urlencode({"encryption": "none", "flow": "xtls-rprx-vision", "security": "reality",
+                           "sni": c["reality_sni"], "fp": "chrome", "pbk": public,
+                           "sid": short_id, "spx": "/", "type": "tcp", "headerType": "none"})
+        vless_uri = ("vless://" + identity + "@" + c["server_address"] + ":" +
+                     str(c["reality_public_port"]) + "?" + query + "#" + quote(person["name"], safe=""))
+        if c["control_plane_mode"] == "cloudflare-tunnel":
+            urls = {k: "https://" + c["subscription_domain"] + p + sub_id for k, p in paths.items()}
+            local_urls = {}
+        else:
+            urls = {}
+            local_urls = {k: "http://127.0.0.1:" + str(c["subscription_port"]) + p + sub_id
+                          for k, p in paths.items()}
         records.append({"name": person["name"], "uuid": identity, "sub_id": sub_id,
-                        "urls": {k: "https://" + c["subscription_domain"] + p + sub_id for k, p in paths.items()}})
+                        "subscription_urls": urls, "local_subscription_urls": local_urls,
+                        "vless_uri": vless_uri})
     reality = {"show": False, "xver": 0, "target": c["reality_target"],
                "serverNames": [c["reality_sni"]], "privateKey": private,
                "minClientVer": c["min_client_ver"], "maxClientVer": "", "maxTimediff": 0,
@@ -114,24 +145,42 @@ def build(c, private, public, routing):
     inbound = {"up": 0, "down": 0, "total": c["inbound_quota_gib"] * 1024**3,
                "remark": c["inbound_remark"], "enable": True, "expiryTime": 0,
                "trafficReset": "monthly", "trafficResetDay": c["traffic_reset_day"],
-               "lastTrafficResetTime": 0, "listen": "", "port": 443, "protocol": "vless",
+               "lastTrafficResetTime": 0, "listen": "", "port": c["reality_listen_port"], "protocol": "vless",
                "settings": json.dumps({"clients": clients, "decryption": "none", "encryption": "none"}),
                "streamSettings": json.dumps(stream),
                "sniffing": json.dumps({"enabled": True, "destOverride": ["http", "tls", "quic"], "metadataOnly": False, "routeOnly": False}),
-               "tag": "inbound-vless-reality-443", "shareAddrStrategy": "custom",
+               "tag": "inbound-vless-reality-" + str(c["reality_listen_port"]), "shareAddrStrategy": "custom",
                "shareAddr": c["server_address"], "subSortIndex": 1, "disableFlow": False}
     patch = {"webListen": "127.0.0.1", "subListen": "127.0.0.1", "subEnable": True,
              "subPort": c["subscription_port"], "subDomain": c["subscription_domain"],
              "subPath": paths["raw"], "subJsonEnable": True, "subJsonPath": paths["json"],
              "subClashEnable": True, "subClashPath": paths["clash"], "subEncrypt": True,
-             "subUpdates": 12, "subTitle": "DMIT Private", "subClashEnableRouting": True,
+             "subUpdates": 12, "subTitle": "Private REALITY", "subClashEnableRouting": True,
              "subClashRules": routing}
+    if c["control_plane_mode"] == "cloudflare-tunnel":
+        base = "https://" + c["subscription_domain"]
+    else:
+        base = "http://127.0.0.1:" + str(c["subscription_port"])
     for field, kind in (("subURI", "raw"), ("subJsonURI", "json"), ("subClashURI", "clash")):
-        patch[field] = "https://" + c["subscription_domain"] + paths[kind]
-    record = {"server_address": c["server_address"], "server_port": 443,
+        patch[field] = base + paths[kind]
+    record = {"provider": c["provider"], "network_mode": c["network_mode"],
+              "control_plane_mode": c["control_plane_mode"], "server_address": c["server_address"],
+              "server_port": c["reality_public_port"], "listen_port": c["reality_listen_port"],
               "expected_exit_ipv4": c["expected_exit_ipv4"], "sni": c["reality_sni"],
               "public_key": public, "short_id": short_id, "clients": records}
-    return {"inbound.json": inbound, "settings.patch.json": patch, "clients.private.json": record}
+    artifacts = {"inbound.json": inbound, "settings.patch.json": patch, "clients.private.json": record}
+    if c["network_mode"] == "nat":
+        # Current 3x-ui Hosts API supersedes legacy streamSettings.externalProxy.
+        # inboundIds stays empty until the freshly-created inbound is read back.
+        artifacts["hosts.pending.json"] = {
+            "inboundIds": [],
+            "remark": "NAT public endpoint",
+            "hosts": [c["server_address"]],
+            "port": c["reality_public_port"],
+            "security": "same",
+            "tags": ["NAT"],
+        }
+    return artifacts
 
 
 def write_new(path, value):
@@ -158,7 +207,10 @@ def main():
         raise ValueError("output already exists; refusing credential regeneration/overwrite")
     if not ipaddress.IPv4Address(c["server_address"]).is_global:
         raise ValueError("server_address must be a verified public address, not the example")
-    if any(c[k].endswith(".example.com") or c[k] == "example.com" for k in ("panel_domain", "subscription_domain", "reality_sni")):
+    domains = [c["reality_sni"]]
+    if c["control_plane_mode"] == "cloudflare-tunnel":
+        domains.extend([c["panel_domain"], c["subscription_domain"]])
+    if any(value.endswith(".example.com") or value == "example.com" for value in domains):
         raise ValueError("replace example domains before rendering")
     private, public = keypair(args.xray)
     routing = (Path(__file__).resolve().parent.parent / "assets/mihomo-routing.yaml").read_text(encoding="utf-8")

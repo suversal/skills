@@ -33,7 +33,7 @@ def smoke(record, name, binary, key_field):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
-    with tempfile.TemporaryDirectory(prefix="dmit-smoke-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="vps-reality-smoke-") as tmp:
         root = Path(tmp)
         config = root / "client.json"
         config.write_text(json.dumps(client_config(record, name, port, key_field)), encoding="utf-8")

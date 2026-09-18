@@ -1,0 +1,4 @@
+interface:
+  display_name: "通用 VPS REALITY 节点"
+  short_description: "跨云厂商和主流 Linux 搭建、验收与维护私用 REALITY 节点"
+  default_prompt: "使用 $vps-reality，先识别服务器平台、系统、架构和网络入口，再安全搭建或维护自用 REALITY 节点。"

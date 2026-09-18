@@ -30,7 +30,7 @@
 2. 新目标连接预检通过，确认本次中断范围及用户授权。
 3. 在唯一名称的 systemd transient unit 内执行完整事务，不只 detach 一个 restart；加单任务锁。不要复用尚未清理的 unit 名，否则可能根本没运行。
 4. 只更新 target/serverNames 及确需变更的客户端对应 SNI，**先同步测试记录**再调用 smoke。默认保留 UUID、私钥/公钥、Short ID、客户端集、额度/重置日。
-5. 重启/重载，检查 core 配置、443、API 读回、所有订阅的新 SNI 和实际外网握手。用 before/after 比較不应变化的字段，不能写死“3 人、1024 GiB、5 日”。
+5. 重启/重载，检查 core 配置、实际 `LISTEN_PORT/PUBLIC_PORT`、API 读回、所有订阅的新 SNI 和实际外网握手。用 before/after 比较不应变化的字段，不能写死用户数、额度或重置日。
 6. 失败时先辨别是 SSH 经代理中断、测试 SNI 仍旧，还是实际目标失败。超时后读回事实；未确认任务结束不得并发重试或回滚。
 7. 确认失败且回退在本次授权内时恢复 before payload/记录，必要时按下节恢复数据库，再做**旧目标握手验收**。打印“已复制备份”不等于恢复成功。
 8. 成功后要求客户端更新订阅。旧配置缓存/旧连接可能继续走旧参数，需要刷新/重启客户端内核。
@@ -52,13 +52,15 @@
 
 ## 可选：本地 target 健康监控
 
-用户选择启用时才安装。随附 `reality_target_watch.py` 只检查固定候选 target 的 DNS/TLS/证书/HTTPS，以及本机 x-ui/443；**不是完整外网 REALITY、订阅、整机宕机或回落偷流量监控**。它不检查带宽计量或跨域回落；`healthy` 不等于无滥用。同机服务无法在 VPS 完全失联时自告警。无自动切换、重启、流量重置。
+用户选择启用时才安装。随附 `reality_target_watch.py` 只检查固定候选 target 的 DNS/TLS/证书/HTTPS，以及本机 x-ui/配置的监听端口；**不是完整外网 REALITY、订阅、整机宕机或回落偷流量监控**。它不检查带宽计量、云/NAT 公网入口或跨域回落；`healthy` 不等于无滥用。同机服务无法在 VPS 完全失联时自告警。无自动切换、重启、流量重置。
 
 把脚本安装到 `/usr/local/sbin/reality-target-watch`，权限 755；服务/timer 来自 `assets/systemd/`。创建 `/var/lib/reality-target-watch`（700）。配置 `/etc/x-ui/reality-watch.env`（600，root），经交互隐藏输入写 Token/Chat ID，不把它们放入 argv、heredoc 工具消息或聊天：
 
 ```text
 WATCH_DOMAIN=实际目标域名
 WATCH_IP=实际目标IPv4
+TARGET_PORT=443
+LISTEN_PORT=实际Xray监听端口
 FAILURE_THRESHOLD=3
 RECOVERY_THRESHOLD=2
 CERT_WARN_DAYS=14
@@ -82,12 +84,12 @@ Telegram 409 通常说明同一个 Bot Token 被多个 3x-ui 实例长轮询。�
 | 现象 | 先查 | 不要做 |
 |---|---|---|
 | SSH publickey 拒绝 | 实例、端口、所选密钥指纹、控制台 | 开密码登录/删全部公钥 |
-| 安装/改配置后 443 没起来 | 实际 core 配置测试、服务日志、监听占用 | 连续整机重启 |
+| 安装/改配置后入口没起来 | 实际 core 配置测试、LISTEN/PUBLIC 端口、云/NAT 规则、服务日志 | 连续整机重启 |
 | 面板/订阅根 404 | 完整随机路径，订阅专属 Sub ID | 重装面板 |
 | 订阅 200 但客户端失败 | 内容是否 HTML、API 参数、内核兼容性 | 禁用 TLS 验证 |
 | 切换后 connection reset | 新 SNI 是否同步、任务是否结束 | 拿旧 SNI 测新服务 |
 | GitHub 仍直连 | 规则顺序、providers、旧连接缓存 | 修改 Microsoft 全部业务策略 |
-| DMIT 用量上涨而面板用户流量较低 | 同窗整机/用户/隧道统计、回落路径，见安全检查流程 | 把差值直接判成偷流量或靠用户配额保底 |
+| 供应商用量上涨而面板用户流量较低 | 同窗整机/用户/隧道统计、回落路径，见安全检查流程 | 把差值直接判成偷流量或靠用户配额保底 |
 | OOM/服务中断 | 内核历史 journal、时间线、资源和重启证据 | 仅凭当前内存正常排除历史 OOM |
 
 ## 升级

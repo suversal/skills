@@ -1,5 +1,5 @@
 [Unit]
-Description=DMIT REALITY target health check
+Description=VPS REALITY target health check
 After=network-online.target x-ui.service
 Wants=network-online.target
 

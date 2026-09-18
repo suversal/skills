@@ -1,4 +1,0 @@
-interface:
-  display_name: "DMIT 自用节点搭建"
-  short_description: "复用实战流程搭建 REALITY 节点、私有面板与订阅，并分层验收和回滚"
-  default_prompt: "使用 $dmit-reality，先核对目标机器与现有状态，再按我们的方案搭建或维护 DMIT 自用节点。"

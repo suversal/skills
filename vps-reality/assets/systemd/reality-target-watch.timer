@@ -1,5 +1,5 @@
 [Unit]
-Description=Run DMIT REALITY target health check every 10 minutes
+Description=Run VPS REALITY target health check every 10 minutes
 
 [Timer]
 OnBootSec=3m

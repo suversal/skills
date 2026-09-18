@@ -59,6 +59,8 @@ def require_config() -> dict[str, str]:
     cfg.setdefault("RECOVERY_THRESHOLD", "2")
     cfg.setdefault("CERT_WARN_DAYS", "14")
     cfg.setdefault("CONNECT_TIMEOUT_SECONDS", "8")
+    cfg.setdefault("TARGET_PORT", "443")
+    cfg.setdefault("LISTEN_PORT", "443")
     if not re.fullmatch(r"[A-Za-z0-9.-]+", cfg["WATCH_DOMAIN"]):
         raise SystemExit("monitor_config=invalid_domain")
     if not re.fullmatch(r"[0-9]+:[A-Za-z0-9_-]{30,}", cfg["TELEGRAM_BOT_TOKEN"]):
@@ -68,6 +70,9 @@ def require_config() -> dict[str, str]:
     for key in ("FAILURE_THRESHOLD", "RECOVERY_THRESHOLD", "CERT_WARN_DAYS", "CONNECT_TIMEOUT_SECONDS"):
         if not cfg[key].isdigit() or not 1 <= int(cfg[key]) <= 120:
             raise SystemExit("monitor_config=invalid_threshold_or_timeout")
+    for key in ("TARGET_PORT", "LISTEN_PORT"):
+        if not cfg[key].isdigit() or not 1 <= int(cfg[key]) <= 65535:
+            raise SystemExit("monitor_config=invalid_port")
     return cfg
 
 
@@ -98,6 +103,8 @@ def run_has_output(command: list[str]) -> bool:
 def check_target(cfg: dict[str, str]) -> dict[str, object]:
     domain = cfg["WATCH_DOMAIN"]
     target_ip = cfg["WATCH_IP"]
+    target_port = int(cfg["TARGET_PORT"])
+    listen_port = int(cfg["LISTEN_PORT"])
     timeout = float(cfg["CONNECT_TIMEOUT_SECONDS"])
     result: dict[str, object] = {
         "domain": domain,
@@ -109,19 +116,20 @@ def check_target(cfg: dict[str, str]) -> dict[str, object]:
         "http_status": 0,
         "dns": False,
         "x_ui": False,
-        "listener_443": False,
+        "listener": False,
+        "listen_port": listen_port,
         "errors": [],
     }
 
     result["x_ui"] = run_quiet(["systemctl", "is-active", "--quiet", "x-ui"])
-    result["listener_443"] = run_has_output(
-        ["ss", "-H", "-lnt", "sport", "=", ":443"]
+    result["listener"] = run_has_output(
+        ["ss", "-H", "-lnt", "sport", "=", ":" + str(listen_port)]
     )
 
     try:
         addresses = {
             item[4][0]
-            for item in socket.getaddrinfo(domain, 443, type=socket.SOCK_STREAM)
+            for item in socket.getaddrinfo(domain, target_port, type=socket.SOCK_STREAM)
         }
         result["dns"] = target_ip in addresses
         if not result["dns"]:
@@ -132,7 +140,7 @@ def check_target(cfg: dict[str, str]) -> dict[str, object]:
     context = ssl.create_default_context()
     context.minimum_version = ssl.TLSVersion.TLSv1_3
     try:
-        with socket.create_connection((target_ip, 443), timeout=timeout) as raw_sock:
+        with socket.create_connection((target_ip, target_port), timeout=timeout) as raw_sock:
             result["tcp"] = True
             with context.wrap_socket(raw_sock, server_hostname=domain) as tls_sock:
                 result["tls13"] = tls_sock.version() == "TLSv1.3"
@@ -148,7 +156,7 @@ def check_target(cfg: dict[str, str]) -> dict[str, object]:
         result["errors"].append("tls_or_certificate_failed")
 
     try:
-        with socket.create_connection((target_ip, 443), timeout=timeout) as raw_sock:
+        with socket.create_connection((target_ip, target_port), timeout=timeout) as raw_sock:
             with context.wrap_socket(raw_sock, server_hostname=domain) as tls_sock:
                 request = (
                     f"GET / HTTP/1.1\r\nHost: {domain}\r\n"
@@ -173,7 +181,7 @@ def check_target(cfg: dict[str, str]) -> dict[str, object]:
             200 <= status < 400,
             result["dns"],
             result["x_ui"],
-            result["listener_443"],
+            result["listener"],
         )
     )
     return result
@@ -254,7 +262,7 @@ def save_state(state: dict[str, object]) -> None:
 
 def failure_summary(result: dict[str, object]) -> str:
     failed = []
-    for key in ("tcp", "tls13", "san", "dns", "x_ui", "listener_443"):
+    for key in ("tcp", "tls13", "san", "dns", "x_ui", "listener"):
         if not result[key]:
             failed.append(key)
     if not 200 <= int(result["http_status"]) < 400:
@@ -275,8 +283,9 @@ def main() -> int:
     if args.test_alert:
         telegram_send(
             cfg,
-            "[TEST] DMIT REALITY 监控已连接\n"
-            f"监控目标: {cfg['WATCH_DOMAIN']} ({cfg['WATCH_IP']})\n"
+            "[TEST] VPS REALITY 监控已连接\n"
+            f"监控目标: {cfg['WATCH_DOMAIN']} ({cfg['WATCH_IP']}:{cfg['TARGET_PORT']})\n"
+            f"本机监听: {cfg['LISTEN_PORT']}/TCP\n"
             f"当前档位: {profile}\n"
             "此监控只发送告警；Token 是否另有面板管理权限取决于其他集成。",
         )
@@ -298,7 +307,7 @@ def main() -> int:
             if not args.no_alert:
                 telegram_send(
                     cfg,
-                    "[RECOVERED] DMIT REALITY 目标已恢复\n"
+                    "[RECOVERED] VPS REALITY 目标已恢复\n"
                     f"目标: {result['domain']} ({result['ip']})\n"
                     f"当前档位: {profile}\n"
                     f"HTTPS: {result['http_status']}，证书剩余约 {result['cert_days']} 天。",
@@ -315,7 +324,7 @@ def main() -> int:
             if not args.no_alert:
                 telegram_send(
                     cfg,
-                    "[ALERT] DMIT REALITY 目标连续检查失败\n"
+                    "[ALERT] VPS REALITY 目标连续检查失败\n"
                     f"目标: {result['domain']} ({result['ip']})\n"
                     f"失败项: {failure_summary(result)}\n"
                     f"当前档位: {profile}\n{impact}",
@@ -345,7 +354,7 @@ def main() -> int:
     save_state(state)
     print(
         "status={status} domain={domain} ip={ip} tls13={tls} cert_days={days} "
-        "http={http} dns={dns} x_ui={xui} listener443={listener} failures={failures}".format(
+        "http={http} dns={dns} x_ui={xui} listen_port={listen_port} listener={listener} failures={failures}".format(
             status="healthy" if healthy else "failed",
             domain=result["domain"],
             ip=result["ip"],
@@ -354,7 +363,8 @@ def main() -> int:
             http=result["http_status"],
             dns=str(result["dns"]).lower(),
             xui=str(result["x_ui"]).lower(),
-            listener=str(result["listener_443"]).lower(),
+            listen_port=result["listen_port"],
+            listener=str(result["listener"]).lower(),
             failures=state["consecutive_failures"],
         )
     )

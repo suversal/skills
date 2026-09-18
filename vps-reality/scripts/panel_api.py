@@ -96,9 +96,10 @@ def decode(value):
 def fresh_inbound(payload, existing):
     if existing:
         raise ValueError("fresh-deploy command refuses existing inbounds")
-    if payload.get("port") != 443 or payload.get("protocol") != "vless":
+    if type(payload.get("port")) is not int or not 1 <= payload["port"] <= 65535 or payload.get("protocol") != "vless":
         raise ValueError("unexpected inbound protocol/port")
-    if decode(payload["streamSettings"]).get("security") != "reality":
+    stream = decode(payload["streamSettings"])
+    if stream.get("security") != "reality" or stream.get("network") != "tcp":
         raise ValueError("REALITY required")
 
 
@@ -130,6 +131,32 @@ def new_client(payload, existing):
                 raise ValueError("duplicate credential or client name")
 
 
+def fresh_host(payload, inbounds, existing_hosts):
+    if set(payload) != {"inboundIds", "remark", "hosts", "port", "security", "tags"}:
+        raise ValueError("unexpected Hosts payload fields")
+    ids = payload["inboundIds"]
+    if not isinstance(ids, list) or len(ids) != 1 or type(ids[0]) is not int:
+        raise ValueError("replace pending inboundIds with one created inbound ID")
+    selected = [x for x in inbounds if x.get("id") == ids[0]]
+    if len(selected) != 1 or selected[0].get("protocol") != "vless":
+        raise ValueError("unknown VLESS inbound")
+    stream = decode(selected[0]["streamSettings"])
+    if stream.get("security") != "reality" or stream.get("network") != "tcp":
+        raise ValueError("Hosts target must be a TCP REALITY inbound")
+    hosts = payload["hosts"]
+    if not isinstance(hosts, list) or len(hosts) != 1 or not isinstance(hosts[0], str) or not hosts[0]:
+        raise ValueError("one public host or address required")
+    port = payload["port"]
+    if type(port) is not int or not 1 <= port <= 65535 or payload["security"] != "same":
+        raise ValueError("invalid public port/security")
+    if not isinstance(payload["remark"], str) or not payload["remark"]:
+        raise ValueError("host remark required")
+    if not isinstance(payload["tags"], list) or any(not isinstance(x, str) or not x for x in payload["tags"]):
+        raise ValueError("invalid host tags")
+    if existing_hosts:
+        raise ValueError("refusing to replace or duplicate existing Hosts entries")
+
+
 def save_output(path, value):
     # Refuse preexisting paths; umask plus O_EXCL prevents casual leakage/overwrite.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -140,14 +167,14 @@ def save_output(path, value):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("operation", choices=("list", "settings", "merge-settings", "add-inbound", "add-client"))
+    p.add_argument("operation", choices=("list", "settings", "list-hosts", "merge-settings", "add-inbound", "add-client", "add-host"))
     p.add_argument("--env", type=Path, default=Path("/etc/x-ui/install-result.env"))
     p.add_argument("--input", type=Path)
     p.add_argument("--output", type=Path)
     p.add_argument("--backup", type=Path)
     p.add_argument("--apply", action="store_true")
     args = p.parse_args()
-    read_only = args.operation in ("list", "settings")
+    read_only = args.operation in ("list", "settings", "list-hosts")
     if not read_only and not args.apply:
         print("panel=not_modified use_apply_only_after_authorization_schema_review_and_backup")
         return
@@ -166,6 +193,8 @@ def main():
         result = api.call("/inbounds/list")
     elif args.operation == "settings":
         result = api.call("/setting/all", "POST")
+    elif args.operation == "list-hosts":
+        result = api.call("/hosts/list")
     elif args.operation == "merge-settings":
         current = api.call("/setting/all", "POST")
         if not isinstance(current, dict) or not set(payload).issubset(current):
@@ -184,9 +213,17 @@ def main():
         if args.operation == "add-inbound":
             fresh_inbound(payload, existing)
             result = api.call("/inbounds/add", "POST", payload)
-        else:
+        elif args.operation == "add-client":
             new_client(payload, existing)
             result = api.call("/clients/add", "POST", payload)
+        else:
+            ids = payload.get("inboundIds")
+            inbound_id = ids[0] if isinstance(ids, list) and len(ids) == 1 and type(ids[0]) is int else 0
+            existing_hosts = api.call("/hosts/byInbound/" + str(inbound_id)) if inbound_id else None
+            if not isinstance(existing_hosts, list):
+                raise ValueError("unexpected Hosts API schema")
+            fresh_host(payload, existing, existing_hosts)
+            result = api.call("/hosts/add", "POST", payload)
     if args.output:
         save_output(args.output, result)
     print("api=success operation=" + args.operation + " secrets=not_printed")
