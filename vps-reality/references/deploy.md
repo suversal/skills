@@ -6,6 +6,8 @@
 
 记录实例标识、供应商/区域、系统、架构、公网/NAT 模式、SSH、云防火墙、月度流量口径、已有业务及控制台/救援入口。域名、Tunnel、Access、保留 IP 若已存在，先确认归属。
 
+只读信息齐全后，一次列出 Cloudflare Tunnel、SSH 隧道和公网 IP 直连，让用户选择。需要公网浏览器面板或自动订阅时优先推荐 Cloudflare Tunnel；只偶尔管理时说明 SSH 隧道攻击面更小。还要分别确认面板和订阅是否需要公网访问；不能因为用户拒绝 Cloudflare 就自动开放公网端口。选择公网 IP 时按 [网络入口模式](network-topologies.md) 做风险说明和二次确认；确认后必须按其选择实施，不能仅因风险较高而擅自换回 Tunnel/SSH。
+
 重装会不可恢复地擦除系统盘。只有用户明确要求重装，并确认准确实例、目标镜像、架构、SSH 公钥指纹和数据清空后才能提交。云控制台显示 Running 不等于 SSH 验收；必须用本次密钥实际登录。主机指纹变化从可信控制台核对，不无条件删除 `known_hosts`。
 
 ```bash
@@ -56,8 +58,8 @@ SSH 收紧前运行实际 `sshd -t`、`sshd -T`，必要时用 `-C` 检查 Match
 
 防火墙沿用当前管理器：
 
-- 云端仅增加本次 `PUBLIC_PORT/TCP`；NAT 供应商在控制台建立准确映射。
-- 主机仅增加 `LISTEN_PORT/TCP`，不增加 UDP，不开放面板/订阅端口。
+- 云端先仅增加本次 `PUBLIC_PORT/TCP`；NAT 供应商在控制台建立准确映射。面板/订阅规则只能按用户已确认的控制面模式另行增加。
+- 主机先仅增加 `LISTEN_PORT/TCP`，不增加 UDP。SSH/Cloudflare 模式不开放面板/订阅端口；公网 IP 模式只开放已二次确认的服务，并按用户选择限制来源 CIDR 或开放到 `0.0.0.0/0`。
 - OCI 保留 InstanceServices/iSCSI/链路本地规则，不 flush、不盲启 UFW。
 - DNF 系沿用 firewalld/nftables 并保留 SELinux；APT 系也只有在确认无厂商关键规则和既有规则体系时才考虑 UFW。
 
@@ -79,7 +81,7 @@ sha256sum "$INSTALLER_FILE"
 
 自算 hash 只能绑定本次审查内容，不等于官方签名。确认安装器支持本次发行版、架构、参数和安装方式后再执行；若不支持就停止。安装期间云/主机防火墙应已阻断管理端口公网访问。
 
-安装后立即把面板监听改为 `127.0.0.1`，检查所有面板/订阅监听、随机用户名/长密码/Web Base Path、面板/core 版本及架构。安装日志和 `install-result.env` 权限 600，不输出到聊天，也不任意 `source`。
+安装后先把面板监听改为 `127.0.0.1`，检查所有面板/订阅监听、随机用户名/长密码/Web Base Path、面板/core 版本及架构。即使用户选择公网 IP，也先在回环状态完成备份和配置检查，再按已确认范围开放。安装日志和 `install-result.env` 权限 600，不输出到聊天，也不任意 `source`。
 
 ## 5. 选择 REALITY target
 
@@ -97,7 +99,7 @@ openssl s_client -connect "$REALITY_TARGET" -servername "$REALITY_SNI" \
 
 ## 6. 生成私密配置包
 
-复制 `assets/deployment.example.json` 到本次私密工作目录。填写供应商、direct/NAT、控制面模式、内部/外部端口、实际出口、用户额度和当前客户端兼容要求。
+SSH-only 使用 `assets/deployment.example.json`；Cloudflare 使用 `assets/deployment.cloudflare.example.json`。复制所选模板到本次私密工作目录，填写供应商、direct/NAT、控制面模式、内部/外部端口、实际出口、用户额度和当前客户端兼容要求。公网 IP 模式先用 SSH-only 模板生成节点与私密凭据，再走逐机适配分支；不得通过修改 helper 绕过二次确认。
 
 ```bash
 python3 scripts/render_bundle.py --config deployment.json --check
@@ -110,6 +112,7 @@ sudo python3 scripts/render_bundle.py --config deployment.json \
 - direct：`reality_listen_port == reality_public_port`。
 - NAT：入站监听内部端口，客户端使用外部端口；额外生成的 `hosts.pending.json` 不含入站 ID，必须等入站创建并读回后填写。当前 3x-ui Hosts API 已取代旧 `externalProxy`；若安装版本没有对应 API，停止并做版本适配，不把旧字段硬塞进配置。
 - Cloudflare 模式要求两个不同域名；SSH-only 模式允许域名留空，不得对外宣称已提供 HTTPS 自动订阅。
+- 公网 IP 模式不是 renderer 的静默默认；它需要读取安装版本的真实设置 schema、单独备份、应用用户确认的监听和防火墙差异，再执行公网安全验收。
 
 生成成功不代表 target、安全、面板 API 或网络已验证。
 
@@ -147,6 +150,8 @@ sudo systemd-run --unit="vps-reality-apply-$(date +%s)-$RANDOM" \
 
 ## 8. 控制面
 
+进入本节前复述用户选择。若此前没有明确答案，现在询问，不得从模板默认值推断。
+
 ### Cloudflare Tunnel 模式
 
 从官方包源取得匹配架构的 cloudflared。Tunnel 凭据和 Token 私下写入 root-only 文件，不放聊天或命令行。ingress 形状：
@@ -170,6 +175,12 @@ ingress:
 
 保持面板/订阅回环监听，通过 `ssh -L` 在可信管理机访问面板。客户端导入私密 `clients.private.json` 中的 VLESS 链接。没有公网 HTTPS 订阅是预期限制，不安装临时 Web 服务补洞。
 
+### 公网 IP 直连模式
+
+读取当前版本设置/API 后，只对用户明确选择的面板或订阅改变监听。先展示并二次确认：公网地址、随机端口、HTTP/HTTPS、允许来源 CIDR 或 `0.0.0.0/0`、云与主机防火墙差异、凭据泄露影响和回滚点。优先推荐 TLS 与固定来源白名单；没有 TLS 时必须直说是明文 HTTP，不能称为安全或推荐方案。用户确认后即实施其选择，不得继续用相同风险反复劝退。
+
+`panel_api.py` 故意只允许回环监听，公网模式不得给它增加隐式例外。逐机适配应使用安装版本明确支持的设置方式，并在写入前保存 SQLite 与防火墙；无法确认 schema 或回滚路径属于技术阻塞，应停止并说明，不能把“风险较高”本身当作阻塞。公网开放后验证所选服务确实可达、面板仍需自身认证、完整订阅仅返回对应用户配置；有限来源模式还要验证非允许来源不可达。选择 `0.0.0.0/0` 时单独确认并在最终报告中保留持续风险。
+
 ## 9. 最终验收
 
 按 [分层验收](verification.md) 执行：
@@ -178,7 +189,7 @@ ingress:
 - 云防火墙、主机防火墙、NAT/LB 与外部 TCP 可达。
 - 服务端临时客户端握手和出口。
 - 用户真实外部设备/网络握手和出口。
-- Cloudflare 完整订阅，或 SSH-only 私密直连配置。
+- Cloudflare 完整订阅、SSH-only 私密直连配置，或经二次确认的公网 IP 访问边界。
 - 每个用户的凭据、额度、到期、订阅隔离。
 - NAT 对外地址/端口、SNI 回落与剩余风险。
 - 获准重启后的服务、规则和登录恢复；未重启则明确未验。

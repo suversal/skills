@@ -1,6 +1,6 @@
 ---
 name: vps-reality
-description: 在主流 systemd Linux VPS 或云服务器上部署、维护和审查个人及少量朋友自用的 3x-ui、Xray、VLESS REALITY Vision 节点。适用于不同云厂商、APT/DNF 系发行版、x86_64/ARM64、独立公网或明确的 NAT TCP 映射，并覆盖私有面板、订阅、SNI/回落风险、配额、验收和回滚；不用于机场运营、未授权服务器或不受支持的平台。
+description: 在主流 systemd Linux VPS 或云服务器上部署、维护和审查个人及少量朋友自用的 3x-ui、Xray、VLESS REALITY Vision 节点。适用于不同云厂商、APT/DNF 系发行版、x86_64/ARM64、独立公网或明确的 NAT TCP 映射，并覆盖可选的 Tunnel、SSH 或公网控制面、订阅、SNI/回落风险、配额、验收和回滚；不用于机场运营、未授权服务器或不受支持的平台。
 ---
 
 # 通用 VPS REALITY 自用节点
@@ -29,12 +29,22 @@ description: 在主流 systemd Linux VPS 或云服务器上部署、维护和审
 - 安装或升级前读 [版本与官方资料](references/sources.md)，重新确认当日版本、安装器、API、发行版和云平台规则。
 - 用户只要方案、文档或 Skill：只产出文件，不连接或修改服务器。
 
+## 首次部署必须交互选择控制面
+
+除非用户已经明确说明，完成只读盘点后、安装或开放端口前，集中询问一次访问方式，不得从示例文件、历史机器或已有 Cloudflare 账号推断答案：
+
+1. **Cloudflare Tunnel（需要公网浏览器访问时优先推荐）**：询问是否愿意安装 `cloudflared`，并确认用户拥有两个不同域名及 Cloudflare 管理权限；面板必须加 Access，订阅使用独立域名。
+2. **SSH 隧道（最少依赖、攻击面最小）**：不要求域名或 Cloudflare；面板与订阅只监听回环，交付私密 VLESS 链接。没有公网 HTTPS 自动订阅。
+3. **公网 IP 直连面板/订阅（高风险）**：先分别确认要暴露面板、订阅还是两者，再说明明文 HTTP 会泄露登录和订阅凭据、公开管理端口会遭扫描。继续前必须再次取得明确确认，并优先要求固定来源 CIDR 白名单和 TLS。不得把该选项描述为与前两项同等安全。
+
+用户可以选择任一模式，也可以在部署后更改；选择权属于用户，但安全后果必须在变更前讲清。用户明确选择公网 IP，并在看到监听地址、端口、TLS 状态、来源范围和回滚方法后确认，就按所选范围实施；即使其确认使用明文 HTTP 或 `0.0.0.0/0`，也不得仅因不推荐而替用户改回 Tunnel/SSH。未得到回答时停在只读盘点，不自动安装 Cloudflare，也不自动把面板绑定到公网。公网 IP 分支属于逐机适配，不由安全默认的 renderer/helper 静默放宽回环限制。
+
 ## 固定执行顺序
 
 1. **定位对象。** 核对实例、供应商、区域、系统、架构、SSH、已有业务、控制台/救援入口和授权范围；多台候选无法消歧时停止询问。
 2. **只读盘点。** 运行 `preflight.sh` 并查看云控制台。主机监听、主机防火墙、云防火墙和公网可达是四项独立证据。
 3. **判定支持状态。** 用 `platform_profile.py` 识别 OS 家族、架构与 init；不支持或信息不足时不得继续自动部署。
-4. **选择入口模式。** 独立公网、NAT 映射、443 冲突、私网/IPv6-only 分别按网络文档处理。不得把 Cloudflare Tunnel 当作 REALITY 节点入口。
+4. **选择入口与控制面。** 独立公网、NAT 映射、443 冲突、私网/IPv6-only 分别按网络文档处理，并让用户明确选择 Cloudflare Tunnel、SSH 隧道或公网 IP 直连。不得把 Cloudflare Tunnel 当作 REALITY 节点入口。
 5. **给出变更摘要。** 说明会改什么、端口、可能中断、云端与主机规则、凭据位置和回滚点。已授权且没有新风险时继续，不逐条反复确认。
 6. **固定版本、备份、应用。** 检查发布来源与架构，备份现有 SQLite/配置，只做必要差异；接口或 schema 不匹配立即停止适配。
 7. **逐层验收。** 本机服务、云端可达、外部 REALITY 握手、出口、订阅/直连配置、用户隔离、SNI 回落、重启恢复分别报告。
@@ -43,12 +53,12 @@ description: 在主流 systemd Linux VPS 或云服务器上部署、维护和审
 
 ```text
 客户端代理流量 ──> 供应商公网入口:PUBLIC_PORT ──> Xray REALITY:LISTEN_PORT
-面板管理 ───────> Cloudflare Access + Tunnel 或 SSH 隧道 ──> 127.0.0.1:面板端口
-订阅入口 ───────> 可选 Cloudflare Tunnel ────────────────> 127.0.0.1:订阅端口
+面板管理 ───────> 用户选择 Cloudflare Access + Tunnel / SSH 隧道 / 公网 IP 直连
+订阅入口 ───────> 用户选择 Cloudflare Tunnel / 私密直连配置 / 公网 IP 直连
 ```
 
 1. 节点流量直达 VPS/NAT TCP 入口，不走 Cloudflare 橙云、Workers 或 Tunnel。SNI/target 是伪装目标，不是出口。
-2. 面板与订阅源站仅绑定回环。面板公网访问必须有独立身份保护；订阅随机路径和每用户 Sub ID 都是凭据。没有域名时使用 SSH 隧道和私密直连配置，不临时暴露面板。
+2. 未选择前，面板与订阅源站仅绑定回环。Cloudflare 面板必须有 Access；公网 IP 直连则按用户确认的 TLS 和来源范围执行。订阅随机路径和每用户 Sub ID 都是凭据；未明确确认不得改为 `0.0.0.0`。
 3. 443 空闲时优先使用；被网站或其他服务占用时不得抢占。选择独立高位 TCP 端口、独立 IP，或经单独设计和授权的 L4 前置方案。
 4. NAT 模式必须同时记录外部地址/端口和内部监听端口；订阅及客户端必须实际显示外部端点。VLESS TCP REALITY 不需要额外 UDP 映射。
 5. 云安全组/NSG/安全列表和主机防火墙分别验证。不得清空 iptables/nftables、覆盖现有规则体系或删除云厂商保留规则。
@@ -60,9 +70,9 @@ description: 在主流 systemd Linux VPS 或云服务器上部署、维护和审
 
 ## 最少输入
 
-优先从只读配置获取，缺失时集中询问：目标实例/供应商、SSH 方式、系统与架构、云防火墙权限、公网或 NAT 入口、端口占用、面板/订阅访问模式、用户与额度、实际客户端。不得要求用户把 Token 或私钥贴进聊天。
+优先从只读配置获取，缺失时集中询问：目标实例/供应商、SSH 方式、系统与架构、云防火墙权限、公网或 NAT 入口、端口占用、面板与订阅各自的访问模式、用户与额度、实际客户端。控制面选择不得代替用户回答。不得要求用户把 Token 或私钥贴进聊天。
 
-以 [deployment.example.json](assets/deployment.example.json) 为输入模板。示例地址与域名不可用于生产；只有 Cloudflare 控制面模式需要自有域名，REALITY 本身不要求域名。
+以默认 SSH-only 的 [deployment.example.json](assets/deployment.example.json) 为输入模板；用户选择 Cloudflare 时改用 [deployment.cloudflare.example.json](assets/deployment.cloudflare.example.json)。示例地址与域名不可用于生产；只有 Cloudflare 控制面模式需要自有域名，REALITY 本身不要求域名。公网 IP 分支先按 [网络入口模式](references/network-topologies.md) 完成交互和风险确认，不直接改写安全模板。
 
 ## 随附工具
 

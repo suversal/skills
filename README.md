@@ -12,7 +12,7 @@
 - Debian/Ubuntu（APT）与 RHEL/Oracle Linux/Rocky/AlmaLinux（DNF）。
 - x86_64 与 ARM64；独立公网或明确的 NAT TCP 映射。
 - OCI、AWS、Google Cloud、Azure、DMIT 和普通 VPS 的云/主机防火墙分层检查。
-- 可选 Cloudflare Tunnel 私有面板/订阅，或无域名的 SSH 隧道模式。
+- 控制面交互选择：优先推荐 Cloudflare Tunnel，也支持最小攻击面的 SSH 隧道，以及用户明确确认后的公网 IP 直连面板/订阅。
 - 独立用户凭据/额度、SNI/共享 CDN/未认证回落检查、分层验收和回滚。
 
 入口：[SKILL.md](vps-reality/SKILL.md)；平台适配：[平台与云厂商](vps-reality/references/platform-and-provider.md)；网络模式：[direct/NAT/端口冲突](vps-reality/references/network-topologies.md)；安全检查：[SNI 与回落](vps-reality/references/sni-fallback-safety.md)。

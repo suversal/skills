@@ -54,6 +54,9 @@ class SkillTests(unittest.TestCase):
         record_text = json.dumps(bundle["clients.private.json"])
         self.assertNotIn("A" * 43, record_text)  # private server key never in client record
         self.assertTrue(all(x["vless_uri"].startswith("vless://") for x in bundle["clients.private.json"]["clients"]))
+        self.assertEqual(self.c["control_plane_mode"], "ssh-only")
+        self.assertTrue(all(not x["subscription_urls"] for x in bundle["clients.private.json"]["clients"]))
+        self.assertTrue(all(x["local_subscription_urls"] for x in bundle["clients.private.json"]["clients"]))
         self.assertNotEqual(bundle["clients.private.json"], self.bundle()["clients.private.json"])
 
     def test_reject_invalid_or_ambiguous_input(self):
@@ -90,7 +93,6 @@ class SkillTests(unittest.TestCase):
         self.assertIn(":34438?", bundle["clients.private.json"]["clients"][0]["vless_uri"])
 
         local = copy.deepcopy(self.c)
-        local.update(control_plane_mode="ssh-only", panel_domain="", subscription_domain="")
         render.validate(local)
         client = render.build(local, "A" * 43, "B" * 43, "")["clients.private.json"]["clients"][0]
         self.assertEqual(client["subscription_urls"], {})
@@ -99,6 +101,12 @@ class SkillTests(unittest.TestCase):
         local["panel_domain"] = "panel.unit.invalid"
         with self.assertRaises(ValueError):
             render.validate(local)
+
+        cloudflare = json.loads((ROOT / "assets/deployment.cloudflare.example.json").read_text())
+        render.validate(cloudflare)
+        client = render.build(cloudflare, "A" * 43, "B" * 43, "")["clients.private.json"]["clients"][0]
+        self.assertTrue(client["subscription_urls"]["raw"].startswith("https://sub.example.com/"))
+        self.assertEqual(client["local_subscription_urls"], {})
 
     def test_platform_profiles_cover_supported_families_and_safe_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -235,7 +243,9 @@ class SkillTests(unittest.TestCase):
             root = Path(tmp)
             config = root / "config.json"
             c = copy.deepcopy(self.c)
-            c.update(server_address="8.8.8.8", panel_domain="panel.unit.invalid", subscription_domain="sub.unit.invalid", reality_sni="target.unit.invalid")
+            c.update(server_address="8.8.8.8", control_plane_mode="cloudflare-tunnel",
+                     panel_domain="panel.unit.invalid", subscription_domain="sub.unit.invalid",
+                     reality_sni="target.unit.invalid")
             config.write_text(json.dumps(c))
             args = ["render", "--config", str(config), "--xray", "/unused", "--output", str(root / "bundle")]
             with patch.object(sys, "argv", args), patch.object(render, "keypair", return_value=("A" * 43, "B" * 43)) as keys, patch("sys.stdout", new_callable=io.StringIO) as output:
