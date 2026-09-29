@@ -1,11 +1,11 @@
 ---
 name: vps-reality
-description: 在主流 systemd Linux VPS 或云服务器上检查、部署、维护和排障个人及少量朋友自用的 3x-ui、Xray、VLESS REALITY Vision 节点。适用于从新 VPS 搭建、自建代理/VPN、节点连不上或断流、用户与配额管理，以及不同云厂商、APT/DNF、x86_64/ARM64、独立公网或明确 NAT TCP 映射；覆盖可选 Tunnel、SSH 或公网控制面、订阅、SNI/回落风险、验收和回滚，不用于机场运营、未授权服务器或不受支持的平台。
+description: 在主流 systemd Linux VPS 或云服务器上检查、部署、维护和排障个人及少量朋友自用的 3x-ui、Xray、VLESS REALITY Vision 节点。适用于从新 VPS 搭建、自建代理/VPN/翻墙节点（科学上网、梯子、proxy、VPN server）、节点连不上或断流、用户与配额管理，以及不同云厂商、APT/DNF、x86_64/ARM64、独立公网或明确 NAT TCP 映射；覆盖可选 Tunnel、SSH 或公网控制面、订阅、SNI/回落风险、验收和回滚，不用于机场运营、未授权服务器或不受支持的平台。
 ---
 
 # 通用 VPS REALITY 自用节点
 
-默认中文。把“完成”落实到真实客户端能够取得正确配置、通过 REALITY 握手并获得预期出口，而不是安装脚本返回 0。
+跟随用户使用的语言回复，无法判断时用中文；面向用户时用大白话，术语第一次出现时顺带解释。把“完成”落实到真实客户端能够取得正确配置、通过 REALITY 握手并获得预期出口，而不是安装脚本返回 0。
 
 本 Skill 源于真实 VPS 部署，但不得把任何历史供应商、IP、系统版本、target、额度、用户或密钥当作新机器默认值。每次先识别平台，再选择对应分支。
 
@@ -51,17 +51,14 @@ description: 在主流 systemd Linux VPS 或云服务器上检查、部署、维
 - 连不上、断流、订阅/面板异常或只在某个网络失败：读 [故障诊断](references/troubleshooting.md)，先把故障定位到客户端、控制面、REALITY、主机或云网络层。
 - 新装选 target、切换 target、SNI/共享 CDN/异常流量：必须读 [SNI 与回落安全](references/sni-fallback-safety.md)。
 - 安装或升级前读 [版本与官方资料](references/sources.md)，重新确认当日版本、安装器、API、发行版和云平台规则。
+- 用户导入订阅、客户端报错或做最终真实客户端验收：读 [客户端导入与验收](references/clients.md)。
 - 用户只要方案、文档或 Skill：只产出文件，不连接或修改服务器。
 
 ## 首次部署必须交互选择控制面
 
-除非用户已经明确说明，完成只读盘点后、安装或开放端口前，集中询问一次访问方式，不得从示例文件、历史机器或已有 Cloudflare 账号推断答案：
+除非用户已经明确说明，完成只读盘点后、安装或开放端口前，集中询问一次面板和订阅的访问方式：Cloudflare Tunnel（需要公网自动订阅时推荐）、SSH 隧道（攻击面最小）、公网 IP 直连（高风险，需二次确认）。不得从示例文件、历史机器或已有 Cloudflare 账号推断答案；未得到回答时停在只读盘点。
 
-1. **Cloudflare Tunnel（需要公网自动订阅时优先推荐）**：询问是否愿意安装 `cloudflared`，并确认 Cloudflare 管理权限。只需自动订阅时用一个订阅域名，面板继续 SSH-only；只有面板也要公网访问时才再使用不同的面板域名，并强制加 Access。
-2. **SSH 隧道（最少依赖、攻击面最小）**：不要求域名或 Cloudflare；面板与订阅只监听回环，交付私密 VLESS 链接。没有公网 HTTPS 自动订阅。
-3. **公网 IP 直连面板/订阅（高风险）**：先分别确认要暴露面板、订阅还是两者，再说明明文 HTTP 会泄露登录和订阅凭据、公开管理端口会遭扫描。继续前必须再次取得明确确认，并优先要求固定来源 CIDR 白名单和 TLS。不得把该选项描述为与前两项同等安全。
-
-用户可以选择任一模式，也可以在部署后更改；选择权属于用户，但安全后果必须在变更前讲清。用户明确选择公网 IP，并在看到监听地址、端口、TLS 状态、来源范围和回滚方法后确认，就按所选范围实施；即使其确认使用明文 HTTP 或 `0.0.0.0/0`，也不得仅因不推荐而替用户改回 Tunnel/SSH。未得到回答时停在只读盘点，不自动安装 Cloudflare，也不自动把面板绑定到公网。公网 IP 分支属于逐机适配，不由安全默认的 renderer/helper 静默放宽回环限制。
+三种模式的取舍、给用户的大白话问法、公网直连的二次确认要求，统一以 [网络入口模式 F 节](references/network-topologies.md#f-控制面模式) 为准，这里不重复。选择权属于用户：风险讲清并获确认后按其选择实施，不擅自改回其他模式。
 
 ## 固定执行顺序
 
@@ -96,7 +93,7 @@ description: 在主流 systemd Linux VPS 或云服务器上检查、部署、维
 
 优先从只读配置获取，缺失时集中询问：目标实例/供应商、SSH 方式、系统与架构、云防火墙权限、公网或 NAT 入口、端口占用、面板与订阅各自的访问模式、用户与额度、实际客户端。控制面选择不得代替用户回答。不得要求用户把 Token 或私钥贴进聊天。
 
-以默认 SSH-only 的 [deployment.example.json](assets/deployment.example.json) 为输入模板；只公开订阅的 Cloudflare 模式优先使用 [deployment.cloudflare-subscription.example.json](assets/deployment.cloudflare-subscription.example.json)，面板和订阅都要通过 Tunnel 时才使用 [deployment.cloudflare.example.json](assets/deployment.cloudflare.example.json)。示例地址与域名不可用于生产；只有 Cloudflare 控制面模式需要自有域名，REALITY 本身不要求域名。公网 IP 分支先按 [网络入口模式](references/network-topologies.md) 完成交互和风险确认，不直接改写安全模板。
+以默认 SSH-only 的 [deployment.example.json](assets/deployment.example.json) 为输入模板；只公开订阅的 Cloudflare 模式优先使用 [deployment.cloudflare-subscription.example.json](assets/deployment.cloudflare-subscription.example.json)，面板和订阅都要通过 Tunnel 时才使用 [deployment.cloudflare.example.json](assets/deployment.cloudflare.example.json)。模板只含 `owner` 一个用户；用户明确要给朋友开号时再增加，已部署后加人走 `user-change`。示例地址与域名不可用于生产；只有 Cloudflare 控制面模式需要自有域名，REALITY 本身不要求域名。公网 IP 分支先按 [网络入口模式](references/network-topologies.md) 完成交互和风险确认，不直接改写安全模板。
 
 ## 随附工具
 
@@ -112,7 +109,7 @@ description: 在主流 systemd Linux VPS 或云服务器上检查、部署、维
 - `scripts/reality_target_watch.py` 与 `assets/systemd/`：可选 systemd 告警；非 systemd 平台不安装。
 - `assets/mihomo-routing.yaml`：可选分流模板，不是完整客户端配置。
 
-这些工具不是盲跑的一键重装器。维护本 Skill 时运行 `python3 -B scripts/test_skill.py` 和 Skill validator。离线测试不等于任何供应商、系统或真实 VPS 的端到端验收。
+这些工具不是盲跑的一键重装器。维护本 Skill 时运行 `python3 -B scripts/test_skill.py`，它同时检查 SKILL.md frontmatter、文档内链接和示例模板；没有 PyYAML 时会跳过分流模板一项。离线测试不等于任何供应商、系统或真实 VPS 的端到端验收。
 
 ## 交付
 

@@ -17,7 +17,6 @@
   "inbound_quota_gib": 900,
   "traffic_reset_day": 5,
   "clients": [
-    {"name": "owner", "quota_gib": 800, "expiry_ms": 0, "limit_ip": 3},
-    {"name": "friend-1", "quota_gib": 100, "expiry_ms": 0, "limit_ip": 3}
+    {"name": "owner", "quota_gib": 900, "expiry_ms": 0, "limit_ip": 3}
   ]
 }

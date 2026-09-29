@@ -29,6 +29,10 @@
 
 随附 `panel_api.py` 的写入路径源于历史 3x-ui API。新装必须读取目标版本 Swagger/源码；HTTP 200 还要检查业务 `success`。不得用旧 SQLite schema 硬改新数据库。
 
+实测记录（2026-09-29，3x-ui v3.8.5 + Xray 26.9.9，Ubuntu 24.04 ARM64）：`panel_api.py` 的 `settings`、`list`、`merge-settings`、`add-inbound` 未经修改即可使用，`smoke_xray.py` 与 `probe_fallback.py` 正常。该版本 `inbounds/list` 返回的 `settings`、`streamSettings` 是 JSON 对象而非字符串，自行编写读回脚本时需兼容两种形式。这只是单次部署的证据，其他版本仍按上文先核对 API。
+
+Helper 之间有 import 依赖（例如 `smoke_xray.py`、`probe_fallback.py` 引用同目录模块），复制到其他主机运行时必须带上整个 `scripts/` 目录。
+
 3x-ui 的 `shareAddrStrategy` 与 Hosts API 仍可能演进。NAT 模式生成 `hosts.pending.json`，不再自动写 legacy `externalProxy`；必须按安装版本核对 API，并读回 raw/JSON/Clash/二维码确认外部地址和端口。
 
 Xray 的 X25519 公钥输出字段在版本间出现过 `Password (PublicKey)`、`PublicKey`、`Password`。生成脚本只接受已识别形式，否则停止私下检查。

@@ -16,6 +16,11 @@ from unittest.mock import patch, MagicMock
 from argparse import Namespace
 import ssl
 
+try:
+    import yaml
+except ImportError:  # optional: only the Mihomo routing template test needs it
+    yaml = None
+
 import panel_api as panel
 import reality_target_watch as watch
 import render_bundle as render
@@ -72,7 +77,7 @@ class SkillTests(unittest.TestCase):
             c[field] = value
             with self.assertRaises(ValueError):
                 render.validate(c)
-        self.c["clients"][1]["name"] = "OWNER"
+        self.c["clients"].append(dict(self.c["clients"][0], name="OWNER"))
         with self.assertRaises(ValueError):
             render.validate(self.c)
 
@@ -402,8 +407,20 @@ class SkillTests(unittest.TestCase):
         for source in (ROOT / "scripts").glob("*.py"):
             compile(source.read_text(), str(source), "exec")
 
+    def test_skill_frontmatter_and_owner_only_templates(self):
+        text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+        self.assertIsNotNone(match, "SKILL.md needs YAML frontmatter")
+        fields = dict(line.split(": ", 1) for line in match.group(1).splitlines() if ": " in line)
+        self.assertEqual(fields.get("name"), ROOT.name)
+        self.assertTrue(0 < len(fields.get("description", "")) <= 1024)
+        for template in (ROOT / "assets").glob("deployment*.example.json"):
+            config = json.loads(template.read_text())
+            render.validate(config)
+            self.assertEqual([c["name"] for c in config["clients"]], ["owner"], template.name)
+
+    @unittest.skipUnless(yaml, "PyYAML not installed; pip install pyyaml to run the routing template test")
     def test_routing_order_and_providers(self):
-        import yaml
         config = yaml.safe_load((ROOT / "assets/mihomo-routing.yaml").read_text())
         rules = config["rules"]
         github = next(i for i, r in enumerate(rules) if r.startswith("RULE-SET,github,"))

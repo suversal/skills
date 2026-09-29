@@ -20,13 +20,29 @@
 
 ## 使用
 
-将整个 `vps-reality/` 文件夹放入 Agent 工具支持的 Skills 目录，保持 `scripts/`、`references/`、`assets/`、`agents/` 的相对结构。调用 `$vps-reality` 后，Skill 会先识别供应商、发行版、架构、网络入口和现有服务，再决定对应分支。
+最简单的方式是直接对 Agent 说：
+
+```text
+请从 https://github.com/suversal/skills/tree/main/vps-reality 安装 vps-reality Skill，保持整个文件夹的目录结构，装好后运行离线测试。这一步不要连接任何服务器。
+```
+
+也可以手动把整个 `vps-reality/` 文件夹复制到 Skills 目录，保持 `scripts/`、`references/`、`assets/`、`agents/` 的相对结构：
+
+| Agent | 个人 Skills 目录 | 调用方式 |
+|---|---|---|
+| Codex | `~/.codex/skills/vps-reality/` | `$vps-reality` |
+| Claude Code | `~/.claude/skills/vps-reality/` | `/vps-reality`，或直接说“使用 vps-reality Skill” |
+| 其他支持 Agent Skills 的工具 | 以该工具文档为准 | 直接说“使用 vps-reality Skill” |
+
+不需要记住任务模式或术语，用平常的话描述目标即可，例如“帮我在这台 VPS 上搭一个自用节点”“我的节点连不上了，帮我查查”“给朋友加一个用户，每月 100G”。
+
+调用后，Skill 会先识别供应商、发行版、架构、网络入口和现有服务，再决定对应分支。
 
 这不是盲跑的一键重装脚本。公开支持范围是主流 systemd Linux、APT/DNF、x86_64/ARM64、独立公网 IPv4/双栈或明确的 TCP NAT 映射。Windows、Alpine/OpenWrt/Arch、非 systemd、容器宿主替代、IPv6-only、TLS 终止型负载均衡和商业多租户会安全停止并要求专门方案。
 
 ## 验证与边界
 
-随附 36 项离线测试，需要 Python 3.9+ 和 PyYAML；覆盖 NAT Hosts、平台识别、配置生成、API 写保护、备份和 SNI 回落。完整 TLS 用例需 Python SSL 库支持 TLS 1.3/ALPN：
+随附 37 项离线测试，需要 Python 3.9+；装有 PyYAML 时会额外运行分流模板测试，没有则自动跳过这一项。覆盖 NAT Hosts、平台识别、配置生成、API 写保护、备份、SNI 回落、SKILL.md frontmatter 和示例模板。完整 TLS 用例需 Python SSL 库支持 TLS 1.3/ALPN：
 
 ```bash
 python3 -B vps-reality/scripts/test_skill.py

@@ -12,7 +12,7 @@
 
 记录实例标识、供应商/区域、系统、架构、公网/NAT 模式、SSH、云防火墙、月度流量口径、已有业务及控制台/救援入口。域名、Tunnel、Access、保留 IP 若已存在，先确认归属。
 
-只读信息齐全后，一次列出 Cloudflare Tunnel、SSH 隧道和公网 IP 直连，让用户选择。需要公网浏览器面板或自动订阅时优先推荐 Cloudflare Tunnel；只偶尔管理时说明 SSH 隧道攻击面更小。还要分别确认面板和订阅是否需要公网访问；不能因为用户拒绝 Cloudflare 就自动开放公网端口。选择公网 IP 时按 [网络入口模式](network-topologies.md) 做风险说明和二次确认；确认后必须按其选择实施，不能仅因风险较高而擅自换回 Tunnel/SSH。
+只读信息齐全后，按 [网络入口模式 F 节](network-topologies.md#f-控制面模式) 的问法一次让用户选择控制面，并分别确认面板和订阅是否需要公网访问；不能因为用户拒绝 Cloudflare 就自动开放公网端口。
 
 重装会不可恢复地擦除系统盘。只有用户明确要求重装，并确认准确实例、目标镜像、架构、SSH 公钥指纹和数据清空后才能提交。云控制台显示 Running 不等于 SSH 验收；必须用本次密钥实际登录。主机指纹变化从可信控制台核对，不无条件删除 `known_hosts`。
 
@@ -116,7 +116,7 @@ openssl s_client -connect "$REALITY_TARGET" -servername "$REALITY_SNI" \
 
 ## 6. 生成私密配置包
 
-SSH-only 使用 `assets/deployment.example.json`；Cloudflare 使用 `assets/deployment.cloudflare.example.json`。复制所选模板到本次私密工作目录，填写供应商、direct/NAT、控制面模式、内部/外部端口、实际出口、用户额度和当前客户端兼容要求。公网 IP 模式先用 SSH-only 模板生成节点与私密凭据，再走逐机适配分支；不得通过修改 helper 绕过二次确认。
+SSH-only 使用 `assets/deployment.example.json`；只公开订阅用 `assets/deployment.cloudflare-subscription.example.json`；面板也走 Tunnel 才用 `assets/deployment.cloudflare.example.json`。模板只含 `owner`，用户要求时再加朋友。复制所选模板到本次私密工作目录，填写供应商、direct/NAT、控制面模式、内部/外部端口、实际出口、用户额度和当前客户端兼容要求。公网 IP 模式先用 SSH-only 模板生成节点与私密凭据，再走逐机适配分支；不得通过修改 helper 绕过二次确认。
 
 ```bash
 python3 scripts/render_bundle.py --config deployment.json --check
