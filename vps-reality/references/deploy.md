@@ -2,6 +2,12 @@
 
 按顺序执行。所有示例变量必须来自本次平台档案，不直接运行示例 IP/域名。辅助脚本上传到独立 staging 目录，保留 `scripts/` 与 `assets/` 相对结构；不上传历史 `.env`、数据库或订阅。
 
+## 0. 锁定 Skill 资源边界
+
+从当前已加载的 `SKILL.md` 绝对路径确定唯一 `SKILL_ROOT`，并在变更摘要中记录它。后续 helper 必须使用 `"$SKILL_ROOT/scripts/<name>"` 这类明确路径调用；不得从当前工作目录、父目录、旧项目、shell 历史、备份或搜索结果中选取同名脚本。目录外的历史脚本只能阅读，不能因为它曾在另一台机器成功就上传或执行。
+
+在服务器新建仅供本次使用的 root-only staging 目录，Skill helper 与官方上游文件分开存放。只复制本次明确需要的 Skill 文件，保留相对结构；不复制项目根目录下的其他 `scripts/`、旧安装器、凭据或数据库。上游安装器和发布产物下载到另一子目录，记录固定版本、完整 URL 与 digest。任一来源、路径或版本无法唯一确认时，在写操作前停止。
+
 ## 1. 确认对象、授权和恢复入口
 
 记录实例标识、供应商/区域、系统、架构、公网/NAT 模式、SSH、云防火墙、月度流量口径、已有业务及控制台/救援入口。域名、Tunnel、Access、保留 IP 若已存在，先确认归属。
@@ -54,7 +60,7 @@ sudo dnf install -y ca-certificates curl openssl python3 sqlite bind-utils
 
 Fail2ban、`unattended-upgrades`、`dnf-automatic`、Swap 和 BBR 按现状决定，不作为安装成功前提。不得为了安装关闭 SELinux/AppArmor、替换内核或软件源。
 
-SSH 收紧前运行实际 `sshd -t`、`sshd -T`，必要时用 `-C` 检查 Match；只 reload 实际服务名，并用第二会话验证。默认保留 SSH 端口和现有管理用户。
+SSH 收紧不是节点安装的默认前提；只有用户要求或既定基线包含该变更时才做。执行前保留当前已登录会话和控制台恢复入口，记录 `sshd -T` 的有效值，修改后先运行 `sshd -t`，再只 reload 实际服务名。必须从一个**全新会话**验证目标用户的密钥登录和所需 sudo 路径；不能仅凭用户属于 sudo/wheel 组推断可用。若还要关闭密码登录或 root 登录，分阶段实施：先保留 root 密钥逃生路径并验证普通管理用户，再关闭 root，最后再次验证普通用户。任一新会话失败立即用仍保留的路径回退，不继续收紧。默认保留 SSH 端口和现有管理用户。
 
 防火墙沿用当前管理器：
 
@@ -69,6 +75,8 @@ SSH 收紧前运行实际 `sshd -t`、`sshd -T`，必要时用 `-C` 检查 Match
 
 查看执行当日稳定 Release、迁移说明、安装器 tag/commit 和捆绑 Xray。优先官方原生安装 + SQLite；个人节点不默认 Docker/Postgres。不得安装 `master`、`dev-latest`，也不得把历史版本视为当前推荐。
 
+先从 `platform_profile.py --require-supported` 的 JSON 结果取得规范架构：`x86_64/amd64` 归一为 `x86_64`，`aarch64/arm64` 归一为 `arm64`。逐项确认官方 Release 存在对应架构产物和官方 digest/签名；缺失即停止，不下载另一个架构，也不用 QEMU 或第三方重打包版本代替。
+
 下载到私密路径并审查：
 
 ```bash
@@ -81,7 +89,16 @@ sha256sum "$INSTALLER_FILE"
 
 自算 hash 只能绑定本次审查内容，不等于官方签名。确认安装器支持本次发行版、架构、参数和安装方式后再执行；若不支持就停止。安装期间云/主机防火墙应已阻断管理端口公网访问。
 
-安装后先把面板监听改为 `127.0.0.1`，检查所有面板/订阅监听、随机用户名/长密码/Web Base Path、面板/core 版本及架构。即使用户选择公网 IP，也先在回环状态完成备份和配置检查，再按已确认范围开放。安装日志和 `install-result.env` 权限 600，不输出到聊天，也不任意 `source`。
+官方压缩包或安装器展开后、执行其中二进制前，用 Skill 内的离线校验器检查真实 ELF 头：
+
+```bash
+python3 "$SKILL_ROOT/scripts/verify_elf_arch.py" \
+  --expected "$PROFILE_ARCH" /path/to/x-ui /path/to/xray
+```
+
+`PROFILE_ARCH` 只能是平台档案给出的 `x86_64` 或 `arm64`。校验器成功只证明 ELF 架构匹配，不证明来源可信或服务可用；仍要核对官方 digest。不得只靠文件名包含 `amd64`/`arm64`，也不得以“能执行”代替架构核对。
+
+安装后先把面板监听改为 `127.0.0.1`。在实际安装目录内有界查找面板和 Xray 可执行文件；若没有唯一候选就停止，不把验收路径写死为某一种架构文件名。再次运行 `verify_elf_arch.py`，然后读取面板/core 的实际版本输出，并检查所有面板/订阅监听、随机用户名/长密码/Web Base Path。即使用户选择公网 IP，也先在回环状态完成备份和配置检查，再按已确认范围开放。安装日志和 `install-result.env` 权限 600，不输出到聊天，也不任意 `source`。
 
 ## 5. 选择 REALITY target
 
@@ -109,9 +126,11 @@ sudo python3 scripts/render_bundle.py --config deployment.json \
 
 输出目录必须不存在。脚本生成随机密钥、UUID、Sub ID 和私密 VLESS 链接，只打印状态与路径。
 
+月度流量周期必须同时写入入站和每个用户的 `trafficReset=monthly` / `trafficResetDay`；用户的旧式 `reset/resetDay` 是到期续期周期，不可拿来代替流量重置。生成后读回两层字段，避免只重置入站统计而用户额度跨月累积。
+
 - direct：`reality_listen_port == reality_public_port`。
 - NAT：入站监听内部端口，客户端使用外部端口；额外生成的 `hosts.pending.json` 不含入站 ID，必须等入站创建并读回后填写。当前 3x-ui Hosts API 已取代旧 `externalProxy`；若安装版本没有对应 API，停止并做版本适配，不把旧字段硬塞进配置。
-- Cloudflare 模式要求两个不同域名；SSH-only 模式允许域名留空，不得对外宣称已提供 HTTPS 自动订阅。
+- Cloudflare 订阅-only 模式要求一个订阅域名且面板域名留空；面板也走 Tunnel 时才要求两个不同域名。SSH-only 模式两个域名都留空，不得对外宣称已提供 HTTPS 自动订阅。
 - 公网 IP 模式不是 renderer 的静默默认；它需要读取安装版本的真实设置 schema、单独备份、应用用户确认的监听和防火墙差异，再执行公网安全验收。
 
 生成成功不代表 target、安全、面板 API 或网络已验证。
@@ -154,7 +173,25 @@ sudo systemd-run --unit="vps-reality-apply-$(date +%s)-$RANDOM" \
 
 ### Cloudflare Tunnel 模式
 
-从官方包源取得匹配架构的 cloudflared。Tunnel 凭据和 Token 私下写入 root-only 文件，不放聊天或命令行。ingress 形状：
+如果部署先以 `ssh-only` 完成，随后才决定把订阅迁移到 Tunnel，不得重新运行
+`render_bundle.py`，否则会生成新的 UUID、Sub ID、REALITY 密钥和订阅路径。先把面板当前
+设置导出为私密 JSON，再使用 `scripts/migrate_subscription_endpoint.py` 生成仅包含
+回环监听与 HTTPS 订阅入口的 settings patch，以及保留原凭据的新版私密客户端记录。
+生成文件不会自动修改面板；仍须在数据库快照完整性通过后，用 `panel_api.py
+merge-settings` 应用，并读回设置和逐项验证三种订阅格式。
+
+从官方包源取得匹配架构的 cloudflared。Tunnel 凭据和 Token 私下写入 root-only 文件，不放聊天或命令行。默认订阅-only ingress 形状：
+
+```yaml
+tunnel: TUNNEL_ID
+credentials-file: /etc/cloudflared/TUNNEL_ID.json
+ingress:
+  - hostname: sub.example.com
+    service: http://127.0.0.1:SUB_PORT
+  - service: http_status:404
+```
+
+只有用户明确要求公网面板时，才增加面板路由：
 
 ```yaml
 tunnel: TUNNEL_ID
@@ -167,7 +204,7 @@ ingress:
   - service: http_status:404
 ```
 
-先创建覆盖整个面板域名的 Access 应用，只允许指定身份，再开放面板路由。订阅域名不得被交互式 Access 覆盖。节点客户端仍使用 VPS/NAT 公网地址，不使用 Tunnel 域名。
+存在面板路由时，先创建覆盖整个面板域名的 Access 应用，只允许指定身份，再开放面板路由。订阅域名不得被交互式 Access 覆盖。节点客户端仍使用 VPS/NAT 公网地址，不使用 Tunnel 域名。
 
 验证：面板未授权被 Access 拦截；授权后仍需 3x-ui 登录；完整订阅 path 返回配置而非 HTML；根 404 可正常；公网 IP 的面板/订阅端口 IPv4/IPv6 均不可达。
 
@@ -179,7 +216,9 @@ ingress:
 
 读取当前版本设置/API 后，只对用户明确选择的面板或订阅改变监听。先展示并二次确认：公网地址、随机端口、HTTP/HTTPS、允许来源 CIDR 或 `0.0.0.0/0`、云与主机防火墙差异、凭据泄露影响和回滚点。优先推荐 TLS 与固定来源白名单；没有 TLS 时必须直说是明文 HTTP，不能称为安全或推荐方案。用户确认后即实施其选择，不得继续用相同风险反复劝退。
 
-`panel_api.py` 故意只允许回环监听，公网模式不得给它增加隐式例外。逐机适配应使用安装版本明确支持的设置方式，并在写入前保存 SQLite 与防火墙；无法确认 schema 或回滚路径属于技术阻塞，应停止并说明，不能把“风险较高”本身当作阻塞。公网开放后验证所选服务确实可达、面板仍需自身认证、完整订阅仅返回对应用户配置；有限来源模式还要验证非允许来源不可达。选择 `0.0.0.0/0` 时单独确认并在最终报告中保留持续风险。
+`panel_api.py` 的普通 `merge-settings` 故意只允许回环监听，公网模式不得给它增加隐式例外。逐机适配应使用安装版本明确支持的设置方式，并在写入前保存 SQLite 与防火墙；无法确认 schema 或回滚路径属于技术阻塞，应停止并说明，不能把“风险较高”本身当作阻塞。公网开放后验证所选服务确实可达、面板仍需自身认证、完整订阅仅返回对应用户配置；有限来源模式还要验证非允许来源不可达。选择 `0.0.0.0/0` 时单独确认并在最终报告中保留持续风险。
+
+用户已明确确认公网订阅时，可用 `panel_api.py expose-public-subscription` 只把订阅监听改为 `0.0.0.0`；它要求一致性备份、`--apply` 和与当前端口完全一致的 `--confirm-public-subscription 0.0.0.0:PORT`，并拒绝同时公开面板。完成 Tunnel 迁移后，用普通 `merge-settings` 把 `subListen` 改回 `127.0.0.1`。
 
 ## 9. 最终验收
 

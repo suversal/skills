@@ -40,8 +40,8 @@ def validate(c):
         raise ValueError("provider requires a simple public label")
     if c["network_mode"] not in {"direct", "nat"}:
         raise ValueError("network_mode must be direct or nat")
-    if c["control_plane_mode"] not in {"cloudflare-tunnel", "ssh-only"}:
-        raise ValueError("control_plane_mode must be cloudflare-tunnel or ssh-only")
+    if c["control_plane_mode"] not in {"cloudflare-tunnel", "cloudflare-subscription-only", "ssh-only"}:
+        raise ValueError("control_plane_mode must be cloudflare-tunnel, cloudflare-subscription-only or ssh-only")
     ipaddress.IPv4Address(c["server_address"])
     ipaddress.IPv4Address(c["expected_exit_ipv4"])
     if c["control_plane_mode"] == "cloudflare-tunnel":
@@ -49,6 +49,10 @@ def validate(c):
         hostname(c["subscription_domain"])
         if c["panel_domain"] == c["subscription_domain"]:
             raise ValueError("panel and subscription domains must differ")
+    elif c["control_plane_mode"] == "cloudflare-subscription-only":
+        if c["panel_domain"]:
+            raise ValueError("subscription-only Tunnel requires an empty panel domain")
+        hostname(c["subscription_domain"])
     elif c["panel_domain"] or c["subscription_domain"]:
         raise ValueError("ssh-only requires empty panel and subscription domains")
     hostname(c["reality_sni"])
@@ -118,13 +122,14 @@ def build(c, private, public, routing):
         clients.append({"id": identity, "email": person["name"], "flow": "xtls-rprx-vision",
                         "limitIp": person["limit_ip"], "totalGB": person["quota_gib"] * 1024**3,
                         "expiryTime": person["expiry_ms"], "enable": True, "tgId": 0,
-                        "subId": sub_id, "comment": "Independent personal credential", "reset": 0})
+                        "subId": sub_id, "comment": "Independent personal credential", "reset": 0,
+                        "trafficReset": "monthly", "trafficResetDay": c["traffic_reset_day"]})
         query = urlencode({"encryption": "none", "flow": "xtls-rprx-vision", "security": "reality",
                            "sni": c["reality_sni"], "fp": "chrome", "pbk": public,
                            "sid": short_id, "spx": "/", "type": "tcp", "headerType": "none"})
         vless_uri = ("vless://" + identity + "@" + c["server_address"] + ":" +
                      str(c["reality_public_port"]) + "?" + query + "#" + quote(person["name"], safe=""))
-        if c["control_plane_mode"] == "cloudflare-tunnel":
+        if c["control_plane_mode"] in {"cloudflare-tunnel", "cloudflare-subscription-only"}:
             urls = {k: "https://" + c["subscription_domain"] + p + sub_id for k, p in paths.items()}
             local_urls = {}
         else:
@@ -157,7 +162,7 @@ def build(c, private, public, routing):
              "subClashEnable": True, "subClashPath": paths["clash"], "subEncrypt": True,
              "subUpdates": 12, "subTitle": "Private REALITY", "subClashEnableRouting": True,
              "subClashRules": routing}
-    if c["control_plane_mode"] == "cloudflare-tunnel":
+    if c["control_plane_mode"] in {"cloudflare-tunnel", "cloudflare-subscription-only"}:
         base = "https://" + c["subscription_domain"]
     else:
         base = "http://127.0.0.1:" + str(c["subscription_port"])
@@ -210,6 +215,8 @@ def main():
     domains = [c["reality_sni"]]
     if c["control_plane_mode"] == "cloudflare-tunnel":
         domains.extend([c["panel_domain"], c["subscription_domain"]])
+    elif c["control_plane_mode"] == "cloudflare-subscription-only":
+        domains.append(c["subscription_domain"])
     if any(value.endswith(".example.com") or value == "example.com" for value in domains):
         raise ValueError("replace example domains before rendering")
     private, public = keypair(args.xray)

@@ -23,6 +23,8 @@ import smoke_xray as smoke
 import sqlite_snapshot as backup
 import probe_fallback as fallback
 import platform_profile as profile
+import verify_elf_arch as elf_arch
+import migrate_subscription_endpoint as migrate_subscription
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -51,6 +53,9 @@ class SkillTests(unittest.TestCase):
         self.assertEqual(len(set(x["id"] for x in clients)), len(clients))
         self.assertEqual(len(set(x["subId"] for x in clients)), len(clients))
         self.assertTrue(all(x["flow"] == "xtls-rprx-vision" for x in clients))
+        self.assertTrue(all(x["trafficReset"] == "monthly" for x in clients))
+        self.assertTrue(all(x["trafficResetDay"] == self.c["traffic_reset_day"] for x in clients))
+        self.assertTrue(all(x["reset"] == 0 for x in clients))
         record_text = json.dumps(bundle["clients.private.json"])
         self.assertNotIn("A" * 43, record_text)  # private server key never in client record
         self.assertTrue(all(x["vless_uri"].startswith("vless://") for x in bundle["clients.private.json"]["clients"]))
@@ -108,6 +113,54 @@ class SkillTests(unittest.TestCase):
         self.assertTrue(client["subscription_urls"]["raw"].startswith("https://sub.example.com/"))
         self.assertEqual(client["local_subscription_urls"], {})
 
+        subscription_only = json.loads((ROOT / "assets/deployment.cloudflare-subscription.example.json").read_text())
+        render.validate(subscription_only)
+        client = render.build(subscription_only, "A" * 43, "B" * 43, "")["clients.private.json"]["clients"][0]
+        self.assertTrue(client["subscription_urls"]["raw"].startswith("https://sub.example.com/"))
+        self.assertEqual(client["local_subscription_urls"], {})
+        subscription_only["panel_domain"] = "panel.unit.invalid"
+        with self.assertRaises(ValueError):
+            render.validate(subscription_only)
+
+    def test_subscription_tunnel_migration_preserves_credentials(self):
+        original = self.bundle()["clients.private.json"]
+        settings = {
+            "webListen": "127.0.0.1",
+            "subListen": "127.0.0.1",
+            "subEnable": True,
+            "subPath": "/r-1234567890abcdef/",
+            "subJsonPath": "/j-1234567890abcdef/",
+            "subClashPath": "/m-1234567890abcdef/",
+        }
+        patch, migrated = migrate_subscription.prepare(settings, original, "Sub.Unit.Invalid")
+        self.assertEqual(patch["webListen"], "127.0.0.1")
+        self.assertEqual(patch["subListen"], "127.0.0.1")
+        self.assertEqual(patch["subDomain"], "sub.unit.invalid")
+        self.assertEqual(migrated["control_plane_mode"], "cloudflare-subscription-only")
+        for before, after in zip(original["clients"], migrated["clients"]):
+            for field in ("uuid", "sub_id", "vless_uri"):
+                self.assertEqual(after[field], before[field])
+            self.assertEqual(after["local_subscription_urls"], {})
+            self.assertTrue(after["subscription_urls"]["raw"].startswith("https://sub.unit.invalid/"))
+
+    def test_subscription_tunnel_migration_rejects_public_origin_or_bad_path(self):
+        original = self.bundle()["clients.private.json"]
+        base = {
+            "webListen": "127.0.0.1",
+            "subListen": "127.0.0.1",
+            "subEnable": True,
+            "subPath": "/r-1234567890abcdef/",
+            "subJsonPath": "/j-1234567890abcdef/",
+            "subClashPath": "/m-1234567890abcdef/",
+        }
+        for changed in (
+            dict(base, subListen="0.0.0.0"),
+            dict(base, webListen="0.0.0.0"),
+            dict(base, subPath="/short/"),
+        ):
+            with self.assertRaises(ValueError):
+                migrate_subscription.prepare(changed, original, "sub.unit.invalid")
+
     def test_platform_profiles_cover_supported_families_and_safe_stop(self):
         with tempfile.TemporaryDirectory() as tmp:
             os_release = Path(tmp) / "os-release"
@@ -125,6 +178,27 @@ class SkillTests(unittest.TestCase):
             os_release.write_text('ID=alpine\nVERSION_ID=3.20\n')
             result = profile.classify(profile.read_os_release(os_release), "x86_64", "openrc")
             self.assertEqual(result["profile_status"], "manual_adaptation_required")
+
+    def test_elf_arch_verifier_matches_both_supported_architectures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for machine, expected in ((62, "x86_64"), (183, "arm64")):
+                binary = Path(tmp) / expected
+                header = bytearray(20)
+                header[:4] = b"\x7fELF"
+                header[4] = 2
+                header[5] = 1
+                header[18:20] = machine.to_bytes(2, "little")
+                binary.write_bytes(header)
+                self.assertEqual(elf_arch.detect_arch(binary), expected)
+                self.assertTrue(elf_arch.verify(binary, expected)["match"])
+                other = "arm64" if expected == "x86_64" else "x86_64"
+                with self.assertRaises(ValueError):
+                    elf_arch.verify(binary, other)
+
+            not_elf = Path(tmp) / "not-elf"
+            not_elf.write_text("synthetic")
+            with self.assertRaises(ValueError):
+                elf_arch.detect_arch(not_elf)
 
     def test_x25519_version_aliases_and_reject_unknown(self):
         for name in ("Password (PublicKey)", "PublicKey", "Password"):
@@ -237,6 +311,35 @@ class SkillTests(unittest.TestCase):
                         sent = api.return_value.call.call_args.args[2]
                         self.assertEqual(sent["unrelated"], "preserve-me")
                         self.assertNotIn("preserve-me", output.getvalue())
+
+    def test_public_subscription_requires_exact_confirmation_and_keeps_panel_loopback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "public.json"
+            render.write_new(source, {"subListen": "0.0.0.0"})
+            current = {"webListen": "127.0.0.1", "subListen": "127.0.0.1",
+                       "subPort": 2096, "subEnable": True, "unrelated": "preserve-me"}
+            base = ["panel", "expose-public-subscription", "--input", str(source),
+                    "--backup", "unused", "--apply"]
+            for confirmation, web_listen, succeeds in ((None, "127.0.0.1", False),
+                                                        ("0.0.0.0:2097", "127.0.0.1", False),
+                                                        ("0.0.0.0:2096", "0.0.0.0", False),
+                                                        ("0.0.0.0:2096", "127.0.0.1", True)):
+                argv = list(base)
+                if confirmation:
+                    argv += ["--confirm-public-subscription", confirmation]
+                settings = dict(current, webListen=web_listen)
+                with patch.object(sys, "argv", argv), patch.object(panel, "check_backup"), patch.object(panel, "read_env", return_value={}), patch.object(panel, "API") as api, patch("sys.stdout", new_callable=io.StringIO):
+                    api.return_value.call.side_effect = [settings, None]
+                    if succeeds:
+                        panel.main()
+                        sent = api.return_value.call.call_args.args[2]
+                        self.assertEqual(sent["subListen"], "0.0.0.0")
+                        self.assertEqual(sent["webListen"], "127.0.0.1")
+                        self.assertEqual(sent["unrelated"], "preserve-me")
+                    else:
+                        with self.assertRaises(ValueError):
+                            panel.main()
+                        self.assertEqual(api.return_value.call.call_count, 1)
 
     def test_full_render_and_repeat_refusal_without_real_keys(self):
         with tempfile.TemporaryDirectory() as tmp:

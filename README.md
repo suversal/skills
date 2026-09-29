@@ -14,8 +14,9 @@
 - OCI、AWS、Google Cloud、Azure、DMIT 和普通 VPS 的云/主机防火墙分层检查。
 - 控制面交互选择：优先推荐 Cloudflare Tunnel，也支持最小攻击面的 SSH 隧道，以及用户明确确认后的公网 IP 直连面板/订阅。
 - 独立用户凭据/额度、SNI/共享 CDN/未认证回落检查、分层验收和回滚。
+- `audit`、`deploy`、`user-change`、`diagnose`、`maintenance` 五类自然语言任务入口；故障先定位层级，再做获准的最小修复。
 
-入口：[SKILL.md](vps-reality/SKILL.md)；平台适配：[平台与云厂商](vps-reality/references/platform-and-provider.md)；网络模式：[direct/NAT/端口冲突](vps-reality/references/network-topologies.md)；安全检查：[SNI 与回落](vps-reality/references/sni-fallback-safety.md)。
+入口：[SKILL.md](vps-reality/SKILL.md)；任务路由：[任务模式与交互](vps-reality/references/task-modes.md)；排障：[故障诊断](vps-reality/references/troubleshooting.md)；平台适配：[平台与云厂商](vps-reality/references/platform-and-provider.md)；网络模式：[direct/NAT/端口冲突](vps-reality/references/network-topologies.md)；安全检查：[SNI 与回落](vps-reality/references/sni-fallback-safety.md)。
 
 ## 使用
 
@@ -25,7 +26,7 @@
 
 ## 验证与边界
 
-随附 32 项离线测试，需要 Python 3.9+ 和 PyYAML；覆盖 NAT Hosts、平台识别、配置生成、API 写保护、备份和 SNI 回落。完整 TLS 用例需 Python SSL 库支持 TLS 1.3/ALPN：
+随附 36 项离线测试，需要 Python 3.9+ 和 PyYAML；覆盖 NAT Hosts、平台识别、配置生成、API 写保护、备份和 SNI 回落。完整 TLS 用例需 Python SSL 库支持 TLS 1.3/ALPN：
 
 ```bash
 python3 -B vps-reality/scripts/test_skill.py

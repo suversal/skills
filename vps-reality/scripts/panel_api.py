@@ -167,12 +167,14 @@ def save_output(path, value):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("operation", choices=("list", "settings", "list-hosts", "merge-settings", "add-inbound", "add-client", "add-host"))
+    p.add_argument("operation", choices=("list", "settings", "list-hosts", "merge-settings",
+                                         "expose-public-subscription", "add-inbound", "add-client", "add-host"))
     p.add_argument("--env", type=Path, default=Path("/etc/x-ui/install-result.env"))
     p.add_argument("--input", type=Path)
     p.add_argument("--output", type=Path)
     p.add_argument("--backup", type=Path)
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--confirm-public-subscription")
     args = p.parse_args()
     read_only = args.operation in ("list", "settings", "list-hosts")
     if not read_only and not args.apply:
@@ -195,15 +197,24 @@ def main():
         result = api.call("/setting/all", "POST")
     elif args.operation == "list-hosts":
         result = api.call("/hosts/list")
-    elif args.operation == "merge-settings":
+    elif args.operation in ("merge-settings", "expose-public-subscription"):
         current = api.call("/setting/all", "POST")
         if not isinstance(current, dict) or not set(payload).issubset(current):
             raise ValueError("unknown settings fields; review installed schema")
         forbidden = {"webPort", "webBasePath", "webDomain", "webCertFile", "webKeyFile"}
         if forbidden.intersection(payload):
             raise ValueError("this helper does not change panel identity or TLS paths")
-        if payload.get("webListen", current.get("webListen")) != "127.0.0.1" or payload.get("subListen", current.get("subListen")) != "127.0.0.1":
-            raise ValueError("only loopback listeners permitted")
+        if args.operation == "merge-settings":
+            if payload.get("webListen", current.get("webListen")) != "127.0.0.1" or payload.get("subListen", current.get("subListen")) != "127.0.0.1":
+                raise ValueError("only loopback listeners permitted")
+        else:
+            port = current.get("subPort")
+            expected = "0.0.0.0:" + str(port)
+            if (set(payload) != {"subListen"} or payload.get("subListen") != "0.0.0.0" or
+                    current.get("webListen") != "127.0.0.1" or current.get("subEnable") is not True or
+                    type(port) is not int or not 1024 <= port <= 65535 or
+                    args.confirm_public_subscription != expected):
+                raise ValueError("public subscription requires exact listener confirmation and loopback panel")
         current.update(payload)
         result = api.call("/setting/update", "POST", current)
     else:

@@ -50,7 +50,7 @@ NAT 共享 IP 不等于独享固定 IP。记录端口映射是否会在重装、
 
 | 选择 | 面板 | 订阅 | 主要取舍 |
 | --- | --- | --- | --- |
-| Cloudflare Tunnel（公网访问优先推荐） | Access + Tunnel | 独立订阅域名，不套交互式 Access | 浏览器和自动订阅方便，需要域名、Cloudflare 权限和额外服务 |
+| Cloudflare Tunnel（公网自动订阅优先推荐） | 默认 SSH-only；需要公网面板时才用 Access + Tunnel | 独立订阅域名，不套交互式 Access | 自动订阅方便，需要域名、Cloudflare 权限和额外服务 |
 | SSH 隧道（最小攻击面） | `ssh -L` 访问回环面板 | 私密 VLESS 链接；本机订阅仅在隧道内可达 | 最少依赖，但没有公网自动订阅 |
 | 公网 IP 直连（高风险） | 公网管理端口 | 可选公网 HTTP 订阅 | 无第三方依赖，但会增加扫描、爆破和明文凭据泄露风险 |
 
@@ -58,14 +58,20 @@ NAT 共享 IP 不等于独享固定 IP。记录端口映射是否会在重装、
 
 ### Cloudflare Tunnel
 
-仅承载面板/订阅：
+默认只承载订阅，面板继续 SSH-only：
+
+```text
+sub.example.com -> Tunnel -> 127.0.0.1:SUB_PORT
+```
+
+只有用户明确需要公网浏览器管理时，才增加面板路由：
 
 ```text
 panel.example.com -> Access -> Tunnel -> 127.0.0.1:PANEL_PORT
 sub.example.com -> Tunnel -> 127.0.0.1:SUB_PORT
 ```
 
-节点地址仍是 VPS/NAT 公网入口。面板主机名加 Access；订阅主机名不能被交互式登录覆盖。直接公网访问面板/订阅端口必须失败。
+节点地址仍是 VPS/NAT 公网入口。若存在面板主机名则必须加 Access；订阅主机名不能被交互式登录覆盖。直接公网访问面板/订阅端口必须失败。
 
 ### SSH 隧道
 
